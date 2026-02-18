@@ -53,6 +53,8 @@ import CampaignDetail from './pages/CampaignDetail';
 import ProspectDetail from './pages/ProspectDetail';
 import Pipeline from './pages/Pipeline';
 import LeadDetail from './pages/LeadDetail';
+import Assistant from './pages/Assistant';
+import Admin from './pages/Admin';
 import __Layout from './Layout.jsx';
 
 
@@ -63,6 +65,8 @@ export const PAGES = {
     "ProspectDetail": ProspectDetail,
     "Pipeline": Pipeline,
     "LeadDetail": LeadDetail,
+    "Assistant": Assistant,
+    "Admin": Admin,
 }
 
 export const pagesConfig = {
