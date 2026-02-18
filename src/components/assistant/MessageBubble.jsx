@@ -7,7 +7,8 @@ import { toast } from "sonner";
 
 const FunctionDisplay = ({ toolCall }) => {
   const [expanded, setExpanded] = useState(false);
-  const name = toolCall?.name || "Fonction";
+  const rawName = toolCall?.name || "Fonction";
+  const name = rawName === "webSearch" ? "🌐 Recherche web" : rawName;
   const status = toolCall?.status || "pending";
 
   const statusConfig = {
