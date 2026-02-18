@@ -38,9 +38,15 @@ export default function Pipeline() {
     const msgs = await base44.entities.Message.filter(msgFilter, "-created_date", 500);
     const byLead = {};
     msgs.forEach(m => {
-      if (m.leadId && (m.status === "DRAFT" || m.status === "COPIED")) {
-        if (!byLead[m.leadId]) byLead[m.leadId] = [];
-        byLead[m.leadId].push(m);
+      if (!m.leadId) return;
+      if (!byLead[m.leadId]) byLead[m.leadId] = { drafts: [], lastSent: null };
+      if (m.status === "DRAFT" || m.status === "COPIED") {
+        byLead[m.leadId].drafts.push(m);
+      }
+      if (m.status === "SENT" && m.sentAt) {
+        if (!byLead[m.leadId].lastSent || new Date(m.sentAt) > new Date(byLead[m.leadId].lastSent)) {
+          byLead[m.leadId].lastSent = m.sentAt;
+        }
       }
     });
     setDraftsByLead(byLead);
