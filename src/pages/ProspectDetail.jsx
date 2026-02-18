@@ -58,6 +58,7 @@ export default function ProspectDetail() {
     if (res?.data?.leadId) {
       await base44.entities.Prospect.update(prospectId, { status: "EXPORTÉ", leadId: res.data.leadId });
       setProspect(p => ({ ...p, status: "EXPORTÉ", leadId: res.data.leadId }));
+      toast?.success?.("Lead créé dans Suivi ✓");
     }
   };
 
