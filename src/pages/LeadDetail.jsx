@@ -265,11 +265,19 @@ export default function LeadDetail() {
         </div>
       )}
 
-      {/* Sent history */}
+      {/* Activity timeline */}
+      <div className="bg-white rounded-xl border shadow-sm p-4">
+        <h3 className="font-semibold text-sm text-slate-800 mb-4 flex items-center gap-2">
+          <Clock className="w-4 h-4 text-slate-400" /> Historique d'activité
+        </h3>
+        <ActivityTimeline leadId={leadId} key={messages.length} />
+      </div>
+
+      {/* Sent messages detail */}
       {sentMessages.length > 0 && (
         <div className="bg-white rounded-xl border shadow-sm p-4">
           <h3 className="font-semibold text-sm text-slate-800 mb-3 flex items-center gap-2">
-            <Send className="w-4 h-4 text-green-500" /> Historique des envois ({sentMessages.length})
+            <Send className="w-4 h-4 text-green-500" /> Messages envoyés ({sentMessages.length})
           </h3>
           <div className="space-y-3">
             {sentMessages.map(m => (
