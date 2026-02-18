@@ -43,12 +43,12 @@ Deno.serve(async (req) => {
     "gala cérémonie événement corporatif Québec 2025",
   ];
 
+  const searchResults = await Promise.allSettled(queries.map(q => braveSearch(q, 5)));
   const allResults = [];
-  for (const q of queries) {
-    try {
-      const results = await braveSearch(q, 5);
-      allResults.push(...results.map(r => ({ title: r.title, url: r.url, snippet: r.snippet })));
-    } catch (_) {}
+  for (const r of searchResults) {
+    if (r.status === "fulfilled") {
+      allResults.push(...r.value.map(r => ({ title: r.title, url: r.url, snippet: r.snippet })));
+    }
   }
 
   if (allResults.length === 0) {
