@@ -19,13 +19,12 @@ export default function ProspectDetail() {
   const [user, setUser] = useState(null);
   const [prospect, setProspect] = useState(null);
   const [contacts, setContacts] = useState([]);
-  const [generatedMsg, setGeneratedMsg] = useState(null);
+  const [draftMessages, setDraftMessages] = useState([]);
   const [msgChannel, setMsgChannel] = useState("LINKEDIN");
   const [msgType, setMsgType] = useState("FIRST_MESSAGE");
   const [selectedContactId, setSelectedContactId] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     base44.auth.me().then(setUser);
