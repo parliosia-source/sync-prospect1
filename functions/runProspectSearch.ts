@@ -241,7 +241,7 @@ Deno.serve(async (req) => {
             const { domain } = normalized;
             if (existingDomains.has(domain) || kbDomains.has(domain)) { skippedDupe++; continue; }
 
-            const sourceResult = batch[i];
+            const sourceResult = r;
             await base44.entities.Prospect.create({
               campaignId,
               ownerUserId: campaign.ownerUserId,
@@ -256,11 +256,10 @@ Deno.serve(async (req) => {
               sourceUrl: sourceResult?.url || sourceResult?.link || "",
             });
 
-          existingDomains.add(cleanDomain);
-          created++;
-          pageCreated++;
-        }
-      }
+            existingDomains.add(domain);
+            created++;
+            pageCreated++;
+            }
       queryLog.push({ query: query.slice(0, 80), page, resultsRaw: results.length, added: pageCreated });
     }
   };
