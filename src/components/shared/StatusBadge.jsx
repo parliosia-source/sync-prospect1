@@ -21,6 +21,8 @@ const CAMPAIGN_COLORS = {
   "DRAFT": "bg-slate-100 text-slate-700",
   "RUNNING": "bg-blue-100 text-blue-700",
   "COMPLETED": "bg-green-100 text-green-700",
+  "DONE_PARTIAL": "bg-amber-100 text-amber-700",
+  "CANCELED": "bg-slate-300 text-slate-700",
   "FAILED": "bg-red-100 text-red-700",
 };
 
