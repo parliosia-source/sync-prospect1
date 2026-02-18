@@ -53,13 +53,23 @@ Deno.serve(async (req) => {
     await base44.entities.Message.update(messageId, msgUpdate);
   }
 
-  // Log activity
+  // Log activity with enriched metadata
+  const bodyPreview = (editedBody || body || "").slice(0, 200);
   await base44.entities.ActivityLog.create({
     ownerUserId: user.email,
-    actionType: "MESSAGE_SENT_CONFIRMED",
+    actionType: "MESSAGE_SENT",
     entityType: "Lead",
     entityId: leadId,
-    payload: { messageId, channel, messageCount, nextActionDueAt, nextActionType },
+    payload: {
+      messageId,
+      channel: channel || "INCONNU",
+      messageCount,
+      nextActionDueAt,
+      nextActionType,
+      activeVersion: editedBody ? "EDITED" : "GENERATED",
+      bodyPreview: bodyPreview || null,
+      subject: (editedSubject || subject || null),
+    },
     status: "SUCCESS",
   });
 
