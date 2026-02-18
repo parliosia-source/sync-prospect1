@@ -218,12 +218,19 @@ export default function CampaignDetail() {
               <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
                 <div className="h-2 bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${campaign.progressPct || 0}%` }} />
               </div>
-              <div className="text-xs text-blue-500 mt-1.5">
-                {(campaign.progressPct || 0) < 20 ? "Initialisation des requêtes…" :
-                 (campaign.progressPct || 0) < 70 ? "Recherche & collecte de résultats…" :
-                 (campaign.progressPct || 0) < 87 ? "Fallbacks élargis…" :
-                 "Finalisation…"}
-                {" · "}<strong>{counts["Tous"]}</strong>/{campaign.targetCount} prospects trouvés
+              <div className="text-xs text-blue-500 mt-1.5 space-y-1">
+                <div>
+                  {(campaign.progressPct || 0) < 20 ? "Initialisation des requêtes…" :
+                   (campaign.progressPct || 0) < 70 ? "Recherche & collecte de résultats…" :
+                   (campaign.progressPct || 0) < 87 ? "Fallbacks élargis…" :
+                   "Finalisation…"}
+                  {" · "}<strong>{counts["Tous"]}</strong>/{campaign.targetCount} prospects trouvés
+                </div>
+                {campaign.toolUsage?.braveRequestsUsed !== undefined && (
+                  <div className="text-slate-500">
+                    Requêtes Brave : {campaign.toolUsage.braveRequestsUsed} / {campaign.toolUsage.braveMaxRequests || 250}
+                  </div>
+                )}
               </div>
             </div>
           )}
