@@ -44,10 +44,10 @@ export default function CampaignModal({ open, onClose, onSave }) {
     setKwInput("");
   };
 
-  const handleSave = async () => {
+  const handleSave = async (launch = false) => {
     if (!form.name || !form.locationQuery) return;
     setSaving(true);
-    await onSave(form);
+    await onSave(form, launch);
     setSaving(false);
     onClose();
   };
@@ -112,22 +112,23 @@ export default function CampaignModal({ open, onClose, onSave }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <Label>Zone géographique</Label>
-              <Select value={form.locationMode} onValueChange={v => setForm(f => ({ ...f, locationMode: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="CITY">Ville</SelectItem>
-                  <SelectItem value="REGION">Région</SelectItem>
-                  <SelectItem value="COUNTRY">Pays</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2">
-              <Label>Localisation *</Label>
-              <Input value={form.locationQuery} onChange={e => setForm(f => ({ ...f, locationQuery: e.target.value }))}
-                placeholder="Ex: Montréal, QC" className="mt-1" />
+          <div>
+            <Label>Localisation *</Label>
+            <div className="flex gap-2 mt-1">
+              {LOCATIONS.map(loc => (
+                <button
+                  key={loc.value}
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, locationKey: loc.value, locationQuery: loc.query, locationMode: loc.value === "CANADA" ? "COUNTRY" : "CITY" }))}
+                  className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                    form.locationKey === loc.value
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
+                  }`}
+                >
+                  {loc.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -154,8 +155,11 @@ export default function CampaignModal({ open, onClose, onSave }) {
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annuler</Button>
-          <Button onClick={handleSave} disabled={saving || !form.name || !form.locationQuery} className="bg-blue-600 hover:bg-blue-700">
-            {saving ? "Création..." : "Créer la campagne"}
+          <Button variant="outline" onClick={() => handleSave(false)} disabled={saving || !form.name || !form.locationQuery}>
+            {saving ? "Création..." : "Créer (brouillon)"}
+          </Button>
+          <Button onClick={() => handleSave(true)} disabled={saving || !form.name || !form.locationQuery} className="bg-blue-600 hover:bg-blue-700">
+            {saving ? "Lancement..." : "Créer et lancer →"}
           </Button>
         </DialogFooter>
       </DialogContent>
