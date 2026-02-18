@@ -211,11 +211,15 @@ Deno.serve(async (req) => {
     }
   }
 
+  const finalStatus = created === 0 ? "FAILED" : "COMPLETED";
+  const errorMsg = created === 0 ? "Aucun prospect valide trouvé — vérifiez les clés API Brave/SerpAPI" : undefined;
+
   await base44.entities.Campaign.update(campaignId, {
-    status: "COMPLETED",
+    status: finalStatus,
     progressPct: 100,
     countProspects: created,
-    toolUsage: { queries: totalQueriesRun, openai: created, skippedDuplicates: skippedDupe },
+    errorMessage: errorMsg,
+    toolUsage: { queries: totalQueriesRun, openai: created, skippedDuplicates: skippedDupe, queryLog: queryLog.slice(0, 30) },
   });
 
   await base44.entities.ActivityLog.create({
@@ -223,9 +227,10 @@ Deno.serve(async (req) => {
     actionType: "RUN_PROSPECT_SEARCH",
     entityType: "Campaign",
     entityId: campaignId,
-    payload: { created, target, skippedDuplicates: skippedDupe, queriesRun: totalQueriesRun },
-    status: "SUCCESS",
+    payload: { created, target, coverage: `${Math.round(created/target*100)}%`, skippedDuplicates: skippedDupe, queriesRun: totalQueriesRun },
+    status: created > 0 ? "SUCCESS" : "ERROR",
+    errorMessage: errorMsg,
   });
 
-  return Response.json({ success: true, created, target, skippedDuplicates: skippedDupe });
+  return Response.json({ success: created > 0, created, target, coverage: Math.round(created/target*100), skippedDuplicates: skippedDupe });
 });
