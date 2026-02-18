@@ -29,12 +29,22 @@ export default function Pipeline() {
     loadLeads();
   }, [user]);
 
-  const loadLeads = () => {
+  const loadLeads = async () => {
     const f = user.role === "admin" ? {} : { ownerUserId: user.email };
-    base44.entities.Lead.filter(f, "-updated_date", 200).then(data => {
-      setLeads(data);
-      setIsLoading(false);
+    const data = await base44.entities.Lead.filter(f, "-updated_date", 200);
+    setLeads(data);
+    // Load draft messages for all leads
+    const msgFilter = user.role === "admin" ? {} : { ownerUserId: user.email };
+    const msgs = await base44.entities.Message.filter(msgFilter, "-created_date", 500);
+    const byLead = {};
+    msgs.forEach(m => {
+      if (m.leadId && (m.status === "DRAFT" || m.status === "COPIED")) {
+        if (!byLead[m.leadId]) byLead[m.leadId] = [];
+        byLead[m.leadId].push(m);
+      }
     });
+    setDraftsByLead(byLead);
+    setIsLoading(false);
   };
 
   const handleQuickStatus = async (lead, status) => {
