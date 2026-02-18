@@ -18,6 +18,7 @@ export default function CampaignDetail() {
   const [activeTab, setActiveTab] = useState("Tous");
   const [isLoading, setIsLoading] = useState(true);
   const [analyzingIds, setAnalyzingIds] = useState(new Set());
+  const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
 
   const pollRef = useRef(null);
 
@@ -26,15 +27,16 @@ export default function CampaignDetail() {
     loadAll();
   }, [campaignId]);
 
-  // Poll while RUNNING
+  // Poll while RUNNING (search) OR analysis RUNNING
   useEffect(() => {
-    if (campaign?.status === "RUNNING") {
+    const shouldPoll = campaign?.status === "RUNNING" || campaign?.analysisStatus === "RUNNING";
+    if (shouldPoll) {
       pollRef.current = setInterval(() => loadAll(), 4000);
     } else {
       clearInterval(pollRef.current);
     }
     return () => clearInterval(pollRef.current);
-  }, [campaign?.status]);
+  }, [campaign?.status, campaign?.analysisStatus]);
 
   const loadAll = async () => {
     const [camp, prsp] = await Promise.all([
