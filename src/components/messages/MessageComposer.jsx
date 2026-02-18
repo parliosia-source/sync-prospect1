@@ -264,10 +264,10 @@ export default function MessageComposer({ message: initialMessage, onUpdated }) 
           )}
         </div>
 
-        {msg.leadId && msg.status !== "COPIED" && msg.status !== "SENT" && (
+        {msg.leadId && msg.status !== "SENT" && (
           <div className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
             <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-            Copiez d'abord le message, puis cliquez "Marquer envoyé" après l'envoi manuel.
+            Copiez le message, collez-le sur LinkedIn/Email, puis cliquez "Message envoyé ✅".
           </div>
         )}
 
