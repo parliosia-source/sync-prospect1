@@ -31,7 +31,7 @@ const LABELS = {
   "REJETÉ": "Rejeté", "EXPORTÉ": "Exporté",
   "NEW": "Nouveau", "CONTACTED": "Contacté", "REPLIED": "A répondu",
   "MEETING": "Meeting", "CLOSED_WON": "Gagné", "CLOSED_LOST": "Perdu",
-  "DRAFT": "Brouillon", "RUNNING": "En cours", "COMPLETED": "Terminé", "FAILED": "Échoué",
+  "DRAFT": "Brouillon", "RUNNING": "En cours", "COMPLETED": "Terminé", "DONE_PARTIAL": "Incomplet", "CANCELED": "Annulée", "FAILED": "Échoué",
 };
 
 export default function StatusBadge({ status, type = "prospect", className = "" }) {
