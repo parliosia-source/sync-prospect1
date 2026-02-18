@@ -105,28 +105,38 @@ function buildBroadFallbacks(campaign, loc) {
   ];
 }
 
-async function normalizeResult(r) {
+function normalizeResult(r) {
    const url = r.url || r.link;
    if (!url) return null;
    const domain = extractDomain(url);
    if (!domain) return null;
 
-   try {
-     const normalized = await callOpenAI(
-       `Voici un résultat de recherche web. Extrais les infos de l'entreprise si c'est une entreprise/organisation qui ORGANISE ses propres événements corporatifs (pas une agence event planner).
+   // Fast heuristic-based validation (no AI)
+   const title = (r.title || "").toLowerCase();
+   const snippet = (r.snippet || "").toLowerCase();
+   const combined = title + " " + snippet;
 
-URL: ${url}
-Titre: ${r.title || ""}
-Snippet: ${r.snippet || ""} ${(r.extra_snippets || []).slice(0, 2).join(" ")}
+   // Exclude event planners, agencies, directories
+   const excludePatterns = /agence|event planner|organisateur professionnel|planificateur|bureau de|répertoire|annuaire|directory|listing|database|crm|software|solution|plateforme|template|theme/i;
+   if (excludePatterns.test(combined)) return null;
 
-Réponds en JSON: { "companyName": string|null, "website": string|null, "domain": string|null, "industry": string|null, "location": {"city":string,"region":string,"country":string}, "entityType": "COMPANY|ASSOCIATION|PROFESSIONAL_ORG|GOV|OTHER", "isValid": boolean, "reason": string }
+   // Require event-related keywords
+   const eventPatterns = /conférence|aga|assemblée|gala|événement|meeting|summit|forum|symposium|colloque|webinaire|formation|townhall|réunion|congrès/i;
+   if (!eventPatterns.test(combined)) return null;
 
-isValid = true seulement si: 1) c'est clairement une entreprise/org qui organise ses propres événements, 2) companyName ET website sont présents, 3) ce n'est PAS une agence event planner, organisateur professionnel, ou répertoire de fournisseurs.`
-     );
-     return { normalized, domain };
-   } catch (e) {
-     return null;
-   }
+   const companyName = r.title?.slice(0, 100) || domain;
+   return {
+     normalized: {
+       companyName,
+       website: url,
+       domain,
+       industry: null,
+       location: { city: "", region: "", country: "CA" },
+       entityType: "COMPANY",
+       isValid: true,
+     },
+     domain,
+   };
 }
 
 Deno.serve(async (req) => {
