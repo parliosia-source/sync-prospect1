@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { Bot, Plus, MessageSquare, Trash2, Search, Building2 } from "lucide-react";
+import { Bot, Plus, MessageSquare, Globe, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import MessageBubble from "@/components/assistant/MessageBubble";
