@@ -2,9 +2,18 @@ import { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { ArrowLeft, Brain, ExternalLink, Building2, MapPin, ChevronRight, RefreshCw, Clock } from "lucide-react";
+import { ArrowLeft, Brain, ExternalLink, Building2, MapPin, ChevronRight, RefreshCw, Clock, Trash2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/shared/StatusBadge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const TABS = ["Tous", "NOUVEAU", "ANALYSÉ", "QUALIFIÉ", "REJETÉ", "EXPORTÉ"];
 const TAB_LABELS = { "Tous": "Tous", "NOUVEAU": "Nouveaux", "ANALYSÉ": "Analysés", "QUALIFIÉ": "Qualifiés", "REJETÉ": "Rejetés", "EXPORTÉ": "Exportés" };
