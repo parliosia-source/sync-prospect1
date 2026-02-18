@@ -99,12 +99,20 @@ export default function CampaignDetail() {
                 )}
               </div>
             </div>
-            {counts["NOUVEAU"] > 0 && campaign.status !== "RUNNING" && (
-              <Button variant="outline" onClick={handleAnalyzeAll} className="gap-2">
-                <Brain className="w-4 h-4 text-blue-500" />
-                Analyser tous ({counts["NOUVEAU"]})
-              </Button>
-            )}
+            <div className="flex gap-2">
+              {counts["NOUVEAU"] > 0 && campaign.status !== "RUNNING" && campaign.analysisStatus !== "RUNNING" && (
+                <Button variant="outline" onClick={handleAnalyzeAll} disabled={isAnalyzingAll} className="gap-2">
+                  {isAnalyzingAll ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4 text-blue-500" />}
+                  {isAnalyzingAll ? "Lancement…" : `Analyser tous (${counts["NOUVEAU"]})`}
+                </Button>
+              )}
+              {analysisIsStale && (
+                <Button variant="outline" onClick={handleAnalyzeAll} className="gap-2 border-orange-300 text-orange-700 hover:bg-orange-50">
+                  <RefreshCw className="w-4 h-4" />
+                  Reprendre l'analyse
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Error */}
