@@ -226,28 +226,29 @@ Deno.serve(async (req) => {
         if (created >= target) break;
         const normalizations = await Promise.allSettled(batch.map(r => normalizeResult(r).catch(() => null)));
         for (let i = 0; i < normalizations.length; i++) {
-          if (created >= target) break;
-          const result = normalizations[i];
-          if (result.status !== "fulfilled" || !result.value) continue;
-          const { normalized, domain } = result.value;
-          if (!normalized?.isValid || !normalized?.companyName || !normalized?.website) continue;
-          const cleanDomain = extractDomain(normalized.website) || domain;
-          if (!cleanDomain) continue;
-          if (existingDomains.has(cleanDomain) || kbDomains.has(cleanDomain)) { skippedDupe++; continue; }
+            if (created >= target) break;
+            const result = normalizations[i];
+            if (result.status !== "fulfilled" || !result.value) continue;
+            const { normalized, domain } = result.value;
+            if (!normalized?.isValid || !normalized?.companyName || !normalized?.website) continue;
+            const cleanDomain = extractDomain(normalized.website) || domain;
+            if (!cleanDomain) continue;
+            if (existingDomains.has(cleanDomain) || kbDomains.has(cleanDomain)) { skippedDupe++; continue; }
 
-          await base44.entities.Prospect.create({
-            campaignId,
-            ownerUserId: campaign.ownerUserId,
-            companyName: normalized.companyName,
-            website: normalized.website,
-            domain: cleanDomain,
-            industry: normalized.industry,
-            location: normalized.location,
-            entityType: normalized.entityType,
-            status: "NOUVEAU",
-            serpSnippet: batch[i]?.snippet || "",
-            sourceUrl: batch[i]?.url || batch[i]?.link || "",
-          });
+            const sourceResult = batch[i];
+            await base44.entities.Prospect.create({
+              campaignId,
+              ownerUserId: campaign.ownerUserId,
+              companyName: normalized.companyName,
+              website: normalized.website,
+              domain: cleanDomain,
+              industry: normalized.industry,
+              location: normalized.location,
+              entityType: normalized.entityType,
+              status: "NOUVEAU",
+              serpSnippet: sourceResult?.snippet || "",
+              sourceUrl: sourceResult?.url || sourceResult?.link || "",
+            });
 
           existingDomains.add(cleanDomain);
           created++;
