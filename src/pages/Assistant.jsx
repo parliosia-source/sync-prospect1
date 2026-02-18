@@ -13,6 +13,7 @@ export default function Assistant() {
   const contextProspectId = params.get("prospectId");
   const contextLeadId = params.get("leadId");
 
+  const [user, setUser] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [activeConvId, setActiveConvId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -21,6 +22,7 @@ export default function Assistant() {
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
+    base44.auth.me().then(setUser);
     loadConversations();
     if (contextProspectId) loadProspectContext(contextProspectId);
     if (contextLeadId) loadLeadContext(contextLeadId);
