@@ -37,11 +37,19 @@ export default function Pipeline() {
   };
 
   const handleQuickStatus = async (lead, status) => {
-    await base44.entities.Lead.update(lead.id, {
-      status,
-      nextActionStatus: "CANCELED",
-    });
-    toast.success(status === "REPLIED" ? "Lead marqué : A répondu" : "Lead marqué : RDV");
+    const updates = { status, nextActionStatus: "DONE" };
+    if (status === "REPLIED") {
+      // Schedule a follow-up J+7
+      updates.nextActionType = "FOLLOW_UP_J7";
+      updates.nextActionDueAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      updates.nextActionStatus = "ACTIVE";
+    } else if (status === "MEETING") {
+      updates.nextActionType = "CALL";
+      updates.nextActionDueAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+      updates.nextActionStatus = "ACTIVE";
+    }
+    await base44.entities.Lead.update(lead.id, updates);
+    toast.success(status === "REPLIED" ? "✓ A répondu — relance J+7 planifiée" : "✓ RDV — appel planifié dans 2j");
     loadLeads();
   };
 
