@@ -136,7 +136,7 @@ export default function Campaigns() {
                     ) : (
                       <Button size="sm" variant="outline" onClick={() => handleRun(c)} className="gap-2">
                         <Play className="w-3.5 h-3.5" />
-                        {c.status === "COMPLETED" ? "Relancer" : "Lancer"}
+                        {c.status === "COMPLETED" || c.status === "DONE_PARTIAL" ? "Relancer" : "Lancer"}
                       </Button>
                     )}
 
