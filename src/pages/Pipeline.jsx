@@ -138,8 +138,8 @@ export default function Pipeline() {
               <tr>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Entreprise</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden md:table-cell">Statut</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden lg:table-cell">Message</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden lg:table-cell">Prochaine action</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden lg:table-cell">Dernier contact</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden lg:table-cell">Prochaine relance</th>
                 <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500">Actions</th>
               </tr>
             </thead>
@@ -162,45 +162,49 @@ export default function Pipeline() {
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell">
                      <div className="flex flex-col gap-1 text-xs">
-                       {/* Last sent */}
                        {draftsByLead[lead.id]?.lastSent ? (
-                         <div className="flex items-center gap-1 text-green-700">
-                           <CheckCircle2 className="w-3 h-3" />
-                           <span>Envoyé {format(new Date(draftsByLead[lead.id].lastSent.sentAt), "d MMM", { locale: fr })}</span>
+                         <div className="flex items-center gap-1.5 text-green-700 font-medium">
+                           <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                           <span>Envoyé le {format(new Date(draftsByLead[lead.id].lastSent.sentAt), "d MMM", { locale: fr })}</span>
                          </div>
                        ) : lead.lastContactedAt ? (
-                         <div className="flex items-center gap-1 text-slate-400">
-                           <MessageSquare className="w-3 h-3" />
-                           <span>{format(new Date(lead.lastContactedAt), "d MMM", { locale: fr })}</span>
+                         <div className="flex items-center gap-1.5 text-slate-500">
+                           <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
+                           <span>Contacté le {format(new Date(lead.lastContactedAt), "d MMM", { locale: fr })}</span>
                          </div>
                        ) : (
-                         <span className="text-slate-300 flex items-center gap-1">
-                           <MessageSquare className="w-3 h-3" />{lead.messageCount || 0}
-                         </span>
+                         <span className="text-slate-300">Pas encore contacté</span>
                        )}
-                       {/* Draft badge */}
+                       {(lead.messageCount || 0) > 0 && (
+                         <span className="text-slate-400">{lead.messageCount} message{lead.messageCount > 1 ? "s" : ""} envoyé{lead.messageCount > 1 ? "s" : ""}</span>
+                       )}
                        {draftsByLead[lead.id]?.drafts?.length > 0 && (
                          <Link
                            to={createPageUrl("LeadDetail") + "?id=" + lead.id}
                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 w-fit"
                          >
-                           Brouillon en attente
+                           ✏️ Brouillon en attente
                          </Link>
                        )}
                      </div>
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell text-xs">
                       {lead.nextActionDueAt && lead.nextActionStatus === "ACTIVE" ? (
-                        <div>
-                          <div className={isOverdue ? "text-red-600 font-medium" : "text-slate-600"}>
+                        <div className="flex flex-col gap-0.5">
+                          <div className={`font-medium ${isOverdue ? "text-red-600" : "text-slate-700"}`}>
                             {ACTION_LABELS[lead.nextActionType] || "Action"}
                           </div>
-                          <div className={`text-xs ${isOverdue ? "text-red-500" : "text-slate-400"}`}>
-                            {format(new Date(lead.nextActionDueAt), "d MMM", { locale: fr })}
-                            {isOverdue && " ⚠️"}
+                          <div className={`flex items-center gap-1 ${isOverdue ? "text-red-500 font-medium" : "text-slate-400"}`}>
+                            <Calendar className="w-3 h-3" />
+                            {format(new Date(lead.nextActionDueAt), "d MMM yyyy", { locale: fr })}
+                            {isOverdue && <span className="text-red-500">⚠️ En retard</span>}
                           </div>
                         </div>
-                      ) : <span className="text-slate-300">—</span>}
+                      ) : lead.nextActionStatus === "DONE" ? (
+                        <span className="text-green-600 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Fait</span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
