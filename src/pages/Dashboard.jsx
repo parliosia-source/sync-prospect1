@@ -151,6 +151,17 @@ export default function Dashboard() {
           <PipelineHealth leads={leads} isLoading={isLoading} />
         </div>
       </div>
+      <CampaignModal
+        open={showCampaignModal}
+        onClose={() => setShowCampaignModal(false)}
+        onSave={async (formData, launch) => {
+          const camp = await base44.entities.Campaign.create({ ...formData, ownerUserId: user.email, status: "DRAFT" });
+          if (launch) {
+            base44.functions.invoke("runProspectSearch", { campaignId: camp.id });
+            window.location.href = createPageUrl("CampaignDetail") + "?id=" + camp.id;
+          }
+        }}
+      />
     </div>
   );
 }
