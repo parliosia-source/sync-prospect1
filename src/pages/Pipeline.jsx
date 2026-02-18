@@ -38,15 +38,9 @@ export default function Pipeline() {
     const msgs = await base44.entities.Message.filter(msgFilter, "-created_date", 500);
     const byLead = {};
     msgs.forEach(m => {
-      if (!m.leadId) return;
-      if (!byLead[m.leadId]) byLead[m.leadId] = { drafts: [], lastSent: null };
-      if (m.status === "DRAFT" || m.status === "COPIED") {
-        byLead[m.leadId].drafts.push(m);
-      }
-      if (m.status === "SENT" && m.sentAt) {
-        if (!byLead[m.leadId].lastSent || new Date(m.sentAt) > new Date(byLead[m.leadId].lastSent)) {
-          byLead[m.leadId].lastSent = m.sentAt;
-        }
+      if (m.leadId && (m.status === "DRAFT" || m.status === "COPIED")) {
+        if (!byLead[m.leadId]) byLead[m.leadId] = [];
+        byLead[m.leadId].push(m);
       }
     });
     setDraftsByLead(byLead);
@@ -161,29 +155,21 @@ export default function Pipeline() {
                       <StatusBadge status={lead.status} type="lead" />
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell">
-                     <div className="flex flex-col gap-1">
-                       <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                         <MessageSquare className="w-3.5 h-3.5" />
-                         <span>{lead.messageCount || 0} envoyé(s)</span>
-                       </div>
-                       {draftsByLead[lead.id]?.drafts?.length > 0 && (() => {
-                         const { drafts } = draftsByLead[lead.id];
+                     <div className="flex items-center gap-2 text-xs text-slate-500">
+                       <MessageSquare className="w-3.5 h-3.5" />
+                       {lead.messageCount || 0}
+                       {draftsByLead[lead.id]?.length > 0 && (() => {
+                         const drafts = draftsByLead[lead.id];
                          const hasCopied = drafts.some(m => m.status === "COPIED");
                          return (
                            <Link
                              to={createPageUrl("LeadDetail") + "?id=" + lead.id}
-                             className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full font-medium text-xs w-fit transition-colors ${hasCopied ? "bg-blue-100 text-blue-700 hover:bg-blue-200" : "bg-amber-100 text-amber-700 hover:bg-amber-200"}`}
+                             className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full font-medium text-xs transition-colors ${hasCopied ? "bg-blue-100 text-blue-700 hover:bg-blue-200" : "bg-amber-100 text-amber-700 hover:bg-amber-200"}`}
                            >
-                             {hasCopied ? "📋 Copié" : "📝 Brouillon"}
+                             {hasCopied ? "Copié" : "Brouillon"}
                            </Link>
                          );
                        })()}
-                       {lead.lastContactedAt && (
-                         <div className="flex items-center gap-1 text-xs text-green-600">
-                           <CheckCircle2 className="w-3 h-3" />
-                           {format(new Date(lead.lastContactedAt), "d MMM", { locale: fr })}
-                         </div>
-                       )}
                      </div>
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell text-xs">
