@@ -155,13 +155,22 @@ export default function Pipeline() {
                       <StatusBadge status={lead.status} type="lead" />
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell">
-                      <div className="flex items-center gap-1 text-xs text-slate-500">
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        {lead.messageCount || 0}
-                        {lead.lastContactedAt && (
-                          <span className="text-slate-400 ml-1">· {format(new Date(lead.lastContactedAt), "d MMM", { locale: fr })}</span>
-                        )}
-                      </div>
+                     <div className="flex items-center gap-2 text-xs text-slate-500">
+                       <MessageSquare className="w-3.5 h-3.5" />
+                       {lead.messageCount || 0}
+                       {draftsByLead[lead.id]?.length > 0 && (() => {
+                         const drafts = draftsByLead[lead.id];
+                         const hasCopied = drafts.some(m => m.status === "COPIED");
+                         return (
+                           <Link
+                             to={createPageUrl("LeadDetail") + "?id=" + lead.id}
+                             className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full font-medium text-xs transition-colors ${hasCopied ? "bg-blue-100 text-blue-700 hover:bg-blue-200" : "bg-amber-100 text-amber-700 hover:bg-amber-200"}`}
+                           >
+                             {hasCopied ? "Copié" : "Brouillon"}
+                           </Link>
+                         );
+                       })()}
+                     </div>
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell text-xs">
                       {lead.nextActionDueAt && lead.nextActionStatus === "ACTIVE" ? (
