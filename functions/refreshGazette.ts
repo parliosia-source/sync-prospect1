@@ -91,15 +91,12 @@ Réponds en JSON: {
     created++;
   }
 
-  // Archive old items (> 7 days)
+  // Archive old items (> 7 days) — run in parallel
   const oldItems = await base44.entities.Gazette.filter({ status: "ACTIVE" }, "-publishDate", 100);
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 7);
-  for (const item of oldItems) {
-    if (item.publishDate && new Date(item.publishDate) < cutoff) {
-      await base44.entities.Gazette.update(item.id, { status: "ARCHIVED" });
-    }
-  }
+  const toArchive = oldItems.filter(item => item.publishDate && new Date(item.publishDate) < cutoff);
+  await Promise.all(toArchive.map(item => base44.entities.Gazette.update(item.id, { status: "ARCHIVED" })));
 
   return Response.json({ success: true, created });
 });
