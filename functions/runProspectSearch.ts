@@ -21,23 +21,27 @@ async function callOpenAI(prompt) {
   return JSON.parse(data.choices[0].message.content);
 }
 
-// Brave search with rate-limit retry + backoff
+// Brave search with rate-limit retry + backoff + header tracking
 async function braveSearch(query, count = 10, offset = 0, retries = 3) {
   const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}&offset=${offset}&extra_snippets=true&country=ca&search_lang=fr`;
   for (let attempt = 0; attempt < retries; attempt++) {
     const res = await fetch(url, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY } });
+    
+    // Capture rate limit headers
+    const rateLimitRemaining = parseInt(res.headers.get("X-RateLimit-Remaining") || "-1", 10);
+    const rateLimitReset = parseInt(res.headers.get("X-RateLimit-Reset") || "-1", 10);
+    const rateLimitLimit = parseInt(res.headers.get("X-RateLimit-Limit") || "-1", 10);
+    
     if (res.status === 429) {
-      // Read reset header or use exponential backoff
-      const resetAfter = parseInt(res.headers.get("X-RateLimit-Reset") || "0", 10);
-      const waitMs = resetAfter > 0 ? resetAfter * 1000 : Math.pow(2, attempt) * 1000;
+      const waitMs = rateLimitReset > 0 ? rateLimitReset * 1000 : Math.pow(2, attempt) * 1000;
       if (attempt < retries - 1) {
         await new Promise(r => setTimeout(r, waitMs));
         continue;
       }
-      return { results: [], rateLimited: true };
+      return { results: [], rateLimited: true, rateLimitRemaining, rateLimitReset, rateLimitLimit };
     }
     const data = await res.json();
-    return { results: data.web?.results || [], rateLimited: false };
+    return { results: data.web?.results || [], rateLimited: false, rateLimitRemaining, rateLimitReset, rateLimitLimit };
   }
   return { results: [], rateLimited: true };
 }
