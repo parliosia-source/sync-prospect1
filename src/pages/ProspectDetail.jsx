@@ -4,14 +4,13 @@ import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
-  ArrowLeft, Globe, CheckCircle2, XCircle, Send, Brain, Linkedin, Mail,
-  User, ExternalLink, RefreshCw, ChevronRight, Lightbulb, AlertCircle, Target
+  ArrowLeft, Globe, CheckCircle2, XCircle, Send, Brain, Mail,
+  User, ExternalLink, RefreshCw, ChevronRight, Lightbulb, AlertCircle, Target, Plus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import StatusBadge from "@/components/shared/StatusBadge";
-import CopyButton from "@/components/shared/CopyButton";
+import MessageComposer from "@/components/messages/MessageComposer";
 
 export default function ProspectDetail() {
   const params = new URLSearchParams(window.location.search);
