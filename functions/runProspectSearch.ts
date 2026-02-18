@@ -240,26 +240,23 @@ Deno.serve(async (req) => {
       for (const batch of batches) {
         if (created >= target) break;
         const normalizations = await Promise.allSettled(batch.map(r => normalizeResult(r).catch(() => null)));
-        for (let i = 0; i < normalizations.length; i++) {
+        for (let i = 0; i < batch.length; i++) {
             if (created >= target) break;
-            const result = normalizations[i];
-            if (result.status !== "fulfilled" || !result.value) continue;
-            const { normalized, domain } = result.value;
-            if (!normalized?.isValid || !normalized?.companyName || !normalized?.website) continue;
-            const cleanDomain = extractDomain(normalized.website) || domain;
-            if (!cleanDomain) continue;
-            if (existingDomains.has(cleanDomain) || kbDomains.has(cleanDomain)) { skippedDupe++; continue; }
+            const normalized = normalizeResult(batch[i]);
+            if (!normalized) continue;
+            const { domain } = normalized;
+            if (existingDomains.has(domain) || kbDomains.has(domain)) { skippedDupe++; continue; }
 
             const sourceResult = batch[i];
             await base44.entities.Prospect.create({
               campaignId,
               ownerUserId: campaign.ownerUserId,
-              companyName: normalized.companyName,
-              website: normalized.website,
-              domain: cleanDomain,
-              industry: normalized.industry,
-              location: normalized.location,
-              entityType: normalized.entityType,
+              companyName: normalized.normalized.companyName,
+              website: normalized.normalized.website,
+              domain,
+              industry: normalized.normalized.industry,
+              location: normalized.normalized.location,
+              entityType: normalized.normalized.entityType,
               status: "NOUVEAU",
               serpSnippet: sourceResult?.snippet || "",
               sourceUrl: sourceResult?.url || sourceResult?.link || "",
