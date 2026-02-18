@@ -61,9 +61,14 @@ export default function MessageComposer({ message: initialMessage, onUpdated }) 
     await navigator.clipboard.writeText(textToCopy);
     const newCount = (msg.copyCount || 0) + 1;
     const updated = { copyCount: newCount, status: "COPIED", activeVersion: activeTab === "EDITED" && hasEdited ? "EDITED" : "GENERATED" };
+    // Also persist edited content if present
+    if (hasEdited) {
+      updated.editedBody = editedBody;
+      updated.editedSubject = editedSubject;
+    }
     await base44.entities.Message.update(msg.id, updated);
     setMsg(m => ({ ...m, ...updated }));
-    toast.success("Message copié dans le presse-papier ✓");
+    toast.success("Message copié — collez-le sur LinkedIn/Email, puis cliquez \"Message envoyé ✅\"");
     setIsCopying(false);
     onUpdated?.();
   };
