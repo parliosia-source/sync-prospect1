@@ -2,12 +2,21 @@ import { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { Plus, Play, RefreshCw, ChevronRight, Search, Calendar } from "lucide-react";
+import { Plus, Play, RefreshCw, ChevronRight, Search, Calendar, Trash2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import StatusBadge from "@/components/shared/StatusBadge";
 import CampaignModal from "@/components/campaigns/CampaignModal";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function Campaigns() {
   const [user, setUser] = useState(null);
