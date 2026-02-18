@@ -3,9 +3,8 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
 const BRAVE_KEY = Deno.env.get("BRAVE_API_KEY");
 const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
-const HUNTER_KEY = Deno.env.get("HUNTER_API_KEY");
 
-async function callOpenAI(prompt, schema) {
+async function callOpenAI(prompt) {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
@@ -36,18 +35,53 @@ async function serpSearch(query) {
   return data.organic_results || [];
 }
 
-async function hunterDomainSearch(domain, company) {
-  const url = `https://api.hunter.io/v2/domain-search?domain=${domain}&company=${encodeURIComponent(company || "")}&limit=5&api_key=${HUNTER_KEY}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  return data;
-}
-
 function extractDomain(url) {
   try {
     const u = new URL(url.startsWith("http") ? url : "https://" + url);
     return u.hostname.replace("www.", "");
   } catch { return null; }
+}
+
+function buildQueryVariants(campaign, loc) {
+  const sector = campaign.industrySectors?.slice(0, 2).join(" ") || "";
+  const kws = campaign.keywords?.slice(0, 3).join(" ") || "";
+  const eventTypes = [
+    ["conférence annuelle", "congrès", "AGA assemblée annuelle"],
+    ["gala cérémonie", "colloque", "formation interne"],
+    ["townhall réunion annuelle", "symposium", "sommet"],
+  ];
+  const queries = [];
+  for (const evGroup of eventTypes) {
+    for (const ev of evGroup) {
+      queries.push(
+        `"${ev}" organisateur ${sector} ${loc} ${kws} -"agence événementielle" -"event planner"`.trim()
+      );
+    }
+  }
+  // Additional broader queries to boost count
+  queries.push(`entreprise organisation "${loc}" événements corporatifs annuel ${sector}`);
+  queries.push(`association ordre professionnel "${loc}" congrès AGA ${sector}`);
+  queries.push(`site:*.ca OR site:*.org événement corporatif ${loc} ${sector} ${kws}`);
+  return queries;
+}
+
+async function normalizeResult(r) {
+  const url = r.url || r.link;
+  if (!url) return null;
+  const domain = extractDomain(url);
+  if (!domain) return null;
+  const normalized = await callOpenAI(
+    `Voici un résultat de recherche web. Extrais les infos de l'entreprise si c'est une entreprise/organisation qui ORGANISE ses propres événements corporatifs (pas une agence event planner).
+
+URL: ${url}
+Titre: ${r.title || ""}
+Snippet: ${r.snippet || ""} ${(r.extra_snippets || []).slice(0, 2).join(" ")}
+
+Réponds en JSON: { "companyName": string|null, "website": string|null, "domain": string|null, "industry": string|null, "location": {"city":string,"region":string,"country":string}, "entityType": "COMPANY|ASSOCIATION|PROFESSIONAL_ORG|GOV|OTHER", "isValid": boolean, "reason": string }
+
+isValid = true seulement si: 1) c'est clairement une entreprise/org qui organise ses propres événements, 2) companyName ET website sont présents, 3) ce n'est PAS une agence event planner ou organisateur professionnel.`
+  );
+  return { normalized, domain };
 }
 
 Deno.serve(async (req) => {
@@ -65,62 +99,52 @@ Deno.serve(async (req) => {
 
   await base44.entities.Campaign.update(campaignId, { status: "RUNNING", progressPct: 5, lastRunAt: new Date().toISOString() });
 
-  // Build search queries
-  const eventTypes = ["conférence", "congrès", "AGA", "gala", "formation", "colloque", "assemblée annuelle", "townhall"];
-  const sector = campaign.industrySectors?.slice(0, 2).join(" ") || "";
   const loc = campaign.locationQuery || "Montréal";
-  const kws = campaign.keywords?.slice(0, 3).join(" ") || "";
-
-  const queries = eventTypes.slice(0, 3).map(ev =>
-    `site:*.ca OR site:*.com ("${ev}" OR "événement corporatif" OR "événement annuel") ${sector} ${loc} ${kws} -"event planner" -"agence événementielle"`
-  );
+  const target = campaign.targetCount || 50;
 
   // Collect existing domains for dedup
   const existing = await base44.entities.Prospect.filter({ campaignId });
   const existingDomains = new Set(existing.map(p => p.domain).filter(Boolean));
-
   let created = existing.length;
-  const target = campaign.targetCount || 50;
 
-  for (let qi = 0; qi < queries.length && created < target; qi++) {
-    const pct = 10 + Math.round((qi / queries.length) * 60);
+  // Include KB entities as additional dedup + query enrichment
+  let kbDomains = new Set();
+  try {
+    const kbEntities = await base44.entities.KBEntity.filter({}, "-created_date", 200);
+    kbEntities.forEach(e => { if (e.domain) kbDomains.add(e.domain); });
+  } catch (_) {}
+
+  const queries = buildQueryVariants(campaign, loc);
+  let queryIndex = 0;
+  let skippedDupe = 0;
+
+  while (created < target && queryIndex < queries.length) {
+    const pct = 10 + Math.round((queryIndex / queries.length) * 70);
     await base44.entities.Campaign.update(campaignId, { progressPct: pct });
 
     let results = [];
-    try { results = await braveSearch(queries[qi], 10); } catch (_) {}
+    try { results = await braveSearch(queries[queryIndex], 10); } catch (_) {}
     if (results.length === 0 && SERPAPI_KEY) {
-      try { results = await serpSearch(queries[qi]); } catch (_) {}
+      try { results = await serpSearch(queries[queryIndex]); } catch (_) {}
     }
 
-    for (const r of results) {
+    // Normalize results in parallel (max 5 at a time)
+    const batch = results.slice(0, 10);
+    const normalizations = await Promise.allSettled(batch.map(r => normalizeResult(r).catch(() => null)));
+
+    for (let i = 0; i < normalizations.length; i++) {
       if (created >= target) break;
-      const url = r.url || r.link;
-      if (!url) continue;
-      const domain = extractDomain(url);
-      if (!domain || existingDomains.has(domain)) continue;
-
-      // Normalize with OpenAI
-      let normalized = null;
-      try {
-        normalized = await callOpenAI(
-          `Voici un résultat de recherche web. Extrais les infos de l'entreprise si c'est une entreprise/organisation qui ORGANISE ses propres événements corporatifs (pas une agence event planner).
-          
-URL: ${url}
-Titre: ${r.title || ""}
-Snippet: ${r.snippet || ""} ${(r.extra_snippets || []).slice(0,2).join(" ")}
-
-Réponds en JSON: { "companyName": string|null, "website": string|null, "domain": string|null, "industry": string|null, "location": {"city":string,"region":string,"country":string}, "entityType": "COMPANY|ASSOCIATION|PROFESSIONAL_ORG|GOV|OTHER", "isValid": boolean, "reason": string }
-
-isValid = true seulement si: 1) c'est clairement une entreprise/org qui organise ses propres événements, 2) companyName ET website sont présents, 3) ce n'est PAS une agence event planner ou organisateur professionnel.`,
-          {}
-        );
-      } catch (_) { continue; }
-
+      const result = normalizations[i];
+      if (result.status !== "fulfilled" || !result.value) continue;
+      const { normalized, domain } = result.value;
       if (!normalized?.isValid || !normalized?.companyName || !normalized?.website) continue;
       const cleanDomain = extractDomain(normalized.website) || domain;
-      if (existingDomains.has(cleanDomain)) continue;
+      if (!cleanDomain) continue;
+      if (existingDomains.has(cleanDomain) || kbDomains.has(cleanDomain)) {
+        skippedDupe++;
+        continue;
+      }
 
-      // Create prospect
       await base44.entities.Prospect.create({
         campaignId,
         ownerUserId: campaign.ownerUserId,
@@ -131,23 +155,22 @@ isValid = true seulement si: 1) c'est clairement une entreprise/org qui organise
         location: normalized.location,
         entityType: normalized.entityType,
         status: "NOUVEAU",
-        serpSnippet: r.snippet || "",
-        sourceUrl: url,
+        serpSnippet: results[i]?.snippet || "",
+        sourceUrl: results[i]?.url || results[i]?.link || "",
       });
 
       existingDomains.add(cleanDomain);
       created++;
     }
-  }
 
-  // Hunt contacts for qualified prospects (quota-safe)
-  await base44.entities.Campaign.update(campaignId, { progressPct: 85 });
+    queryIndex++;
+  }
 
   await base44.entities.Campaign.update(campaignId, {
     status: "COMPLETED",
     progressPct: 100,
     countProspects: created,
-    toolUsage: { brave: queries.length, openai: created },
+    toolUsage: { brave: queryIndex, openai: created, skippedDuplicates: skippedDupe },
   });
 
   await base44.entities.ActivityLog.create({
@@ -155,9 +178,9 @@ isValid = true seulement si: 1) c'est clairement une entreprise/org qui organise
     actionType: "RUN_PROSPECT_SEARCH",
     entityType: "Campaign",
     entityId: campaignId,
-    payload: { created, target },
+    payload: { created, target, skippedDuplicates: skippedDupe, queriesRun: queryIndex },
     status: "SUCCESS",
   });
 
-  return Response.json({ success: true, created });
+  return Response.json({ success: true, created, target, skippedDuplicates: skippedDupe });
 });

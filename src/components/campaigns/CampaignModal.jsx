@@ -13,10 +13,16 @@ const SECTORS = [
   "Industrie & Manufacture", "Commerce de détail", "Transport & Logistique", "Autre"
 ];
 
+const LOCATIONS = [
+  { value: "MONTREAL", label: "Montréal", query: "Montréal, QC" },
+  { value: "QUEBEC_CITY", label: "Ville de Québec", query: "Québec, QC" },
+  { value: "CANADA", label: "Canada", query: "Canada" },
+];
+
 export default function CampaignModal({ open, onClose, onSave }) {
   const [form, setForm] = useState({
     name: "", targetCount: 50, industrySectors: [], companySize: "MID",
-    locationMode: "CITY", locationQuery: "", keywords: [],
+    locationMode: "CITY", locationQuery: "Montréal, QC", locationKey: "MONTREAL", keywords: [],
   });
   const [kwInput, setKwInput] = useState("");
   const [saving, setSaving] = useState(false);
