@@ -21,11 +21,25 @@ async function callOpenAI(prompt) {
   return JSON.parse(data.choices[0].message.content);
 }
 
-async function braveSearch(query, count = 10, offset = 0) {
+// Brave search with rate-limit retry + backoff
+async function braveSearch(query, count = 10, offset = 0, retries = 3) {
   const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}&offset=${offset}&extra_snippets=true&country=ca&search_lang=fr`;
-  const res = await fetch(url, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY } });
-  const data = await res.json();
-  return data.web?.results || [];
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const res = await fetch(url, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY } });
+    if (res.status === 429) {
+      // Read reset header or use exponential backoff
+      const resetAfter = parseInt(res.headers.get("X-RateLimit-Reset") || "0", 10);
+      const waitMs = resetAfter > 0 ? resetAfter * 1000 : Math.pow(2, attempt) * 1000;
+      if (attempt < retries - 1) {
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+      return { results: [], rateLimited: true };
+    }
+    const data = await res.json();
+    return { results: data.web?.results || [], rateLimited: false };
+  }
+  return { results: [], rateLimited: true };
 }
 
 async function serpSearch(query, start = 0) {
@@ -48,7 +62,6 @@ function buildQueryVariants(campaign, loc) {
   const exclude = '-"agence événementielle" -"event planner" -"planificateur d\'événements" -"organisation d\'événements"';
 
   const queries = [
-    // Event-type driven (core ICP)
     `"conférence annuelle" organisateur ${sector} ${loc} ${exclude}`.trim(),
     `"AGA" OR "assemblée générale annuelle" entreprise ${sector} ${loc} ${exclude}`.trim(),
     `"congrès annuel" association ${sector} ${loc} ${exclude}`.trim(),
@@ -57,20 +70,14 @@ function buildQueryVariants(campaign, loc) {
     `"colloque" OR "symposium" ${sector} ${loc} ${exclude}`.trim(),
     `"journée d'entreprise" OR "journée employés" ${loc} ${sector} ${exclude}`.trim(),
     `"webinaire" OR "webdiffusion" ${sector} ${loc} entreprise ${exclude}`.trim(),
-
-    // Sector-targeted
     `association professionnelle congrès ${loc} ${sector}`.trim(),
     `ordre professionnel assemblée annuelle ${loc} ${sector}`.trim(),
     `chambre de commerce événement corporatif ${loc} membres`.trim(),
     `grande entreprise événement annuel employés ${loc} ${sector}`.trim(),
-
-    // Keyword-boosted (if user added keywords)
     ...(kws ? [
       `"${kws}" événement corporatif ${loc} ${sector} ${exclude}`.trim(),
       `${kws} conférence réunion annuelle ${loc} ${exclude}`.trim(),
     ] : []),
-
-    // Broad fallbacks
     `entreprise ${loc} événements corporatifs annuels ${sector}`.trim(),
     `organisations ${loc} congrès gala AGA ${sector}`.trim(),
     `site:.ca entreprise événement corporatif ${loc} ${sector}`.trim(),
@@ -78,6 +85,20 @@ function buildQueryVariants(campaign, loc) {
   ];
 
   return queries.filter(q => q.length > 10);
+}
+
+// Phase 3: broader fallbacks without exclude filter
+function buildBroadFallbacks(campaign, loc) {
+  const sector = campaign.industrySectors?.slice(0, 2).join(" ") || "";
+  return [
+    `organisation ${loc} événement annuel réunion ${sector}`.trim(),
+    `entreprise ${loc} ${sector} conférence annuelle`.trim(),
+    `association ${loc} ${sector} membres assemblée`.trim(),
+    `chambres de commerce ${loc} membres annuaire entreprises`.trim(),
+    `"${loc}" organisateur événement corporatif B2B`.trim(),
+    `grande entreprise ${loc} ${sector} site web`.trim(),
+    `syndicat association ${loc} ${sector} annuel`.trim(),
+  ];
 }
 
 async function normalizeResult(r) {
@@ -133,12 +154,24 @@ Deno.serve(async (req) => {
   let queryIndex = 0;
   let skippedDupe = 0;
   let totalQueriesRun = 0;
+  let rateLimitHit = false;
   const queryLog = [];
 
-  const runQuery = async (query, maxPages = 3) => {
+  const runQuery = async (query, maxPagesOverride) => {
+    // Dynamic maxPages: go deeper when far from target
+    const remaining = target - created;
+    const maxPages = maxPagesOverride ?? (remaining > 25 ? 5 : 3);
+
     for (let page = 0; page < maxPages && created < target; page++) {
       let results = [];
-      try { results = await braveSearch(query, 10, page * 10); } catch (_) {}
+      try {
+        const braveResult = await braveSearch(query, 10, page * 10);
+        if (braveResult.rateLimited) {
+          rateLimitHit = true;
+          break;
+        }
+        results = braveResult.results;
+      } catch (_) {}
       if (results.length === 0 && SERPAPI_KEY) {
         try { results = await serpSearch(query, page * 10); } catch (_) {}
       }
@@ -187,15 +220,15 @@ Deno.serve(async (req) => {
   };
 
   // Phase 1: run all queries
-  while (created < target && queryIndex < allQueries.length) {
-    const pct = 10 + Math.round((queryIndex / allQueries.length) * 60);
+  while (created < target && queryIndex < allQueries.length && !rateLimitHit) {
+    const pct = 10 + Math.round((queryIndex / allQueries.length) * 55);
     await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
     await runQuery(allQueries[queryIndex]);
     queryIndex++;
   }
 
-  // Phase 2: if < 60% of target, run broadened fallback queries
-  if (created < target * 0.6) {
+  // Phase 2: broadened fallbacks if < 60% of target
+  if (created < target * 0.6 && !rateLimitHit) {
     const sector = campaign.industrySectors?.slice(0, 2).join(" ") || "";
     const fallbacks = [
       `organisation ${loc} événement annuel réunion`,
@@ -204,22 +237,69 @@ Deno.serve(async (req) => {
       `"${loc}" événements corporatifs B2B prestataires`,
       `chambres de commerce ${loc} membres annuaire`,
     ];
-    await base44.entities.Campaign.update(campaignId, { progressPct: 75 });
+    await base44.entities.Campaign.update(campaignId, { progressPct: 70 });
     for (const q of fallbacks) {
       if (created >= target) break;
       await runQuery(q, 2);
     }
   }
 
-  const finalStatus = created === 0 ? "FAILED" : "COMPLETED";
-  const errorMsg = created === 0 ? "Aucun prospect valide trouvé — vérifiez les clés API Brave/SerpAPI" : undefined;
+  // Phase 3: broad fallbacks without exclude filter, if still short and no rate limit
+  if (created < target && (target - created) >= 10 && !rateLimitHit) {
+    const broadFallbacks = buildBroadFallbacks(campaign, loc);
+    await base44.entities.Campaign.update(campaignId, { progressPct: 85 });
+    for (const q of broadFallbacks) {
+      if (created >= target) break;
+      await runQuery(q, 2);
+    }
+  }
+
+  // Determine stop reason
+  let stopReason;
+  if (created >= target) {
+    stopReason = "TARGET_REACHED";
+  } else if (rateLimitHit) {
+    stopReason = "RATE_LIMIT";
+  } else if (queryIndex >= allQueries.length) {
+    stopReason = "QUERIES_EXHAUSTED";
+  } else {
+    stopReason = "ERROR";
+  }
+
+  // Determine final status
+  let finalStatus;
+  let errorMsg;
+  if (created === 0) {
+    finalStatus = "FAILED";
+    errorMsg = stopReason === "RATE_LIMIT"
+      ? "Limite de l'API Brave atteinte. Réessayez dans quelques minutes."
+      : "Aucun prospect valide trouvé — vérifiez les clés API Brave/SerpAPI";
+  } else if (created < target) {
+    finalStatus = "DONE_PARTIAL";
+    if (stopReason === "RATE_LIMIT") {
+      errorMsg = `Recherche interrompue par limite API: ${created}/${target} prospects trouvés. Relancez dans quelques minutes.`;
+    } else {
+      errorMsg = `Recherche terminée: ${created}/${target} prospects uniques trouvés (requêtes épuisées ou déduplication). ${skippedDupe > 0 ? `${skippedDupe} doublons ignorés.` : ""}`.trim();
+    }
+  } else {
+    finalStatus = "COMPLETED";
+  }
 
   await base44.entities.Campaign.update(campaignId, {
     status: finalStatus,
     progressPct: 100,
     countProspects: created,
     errorMessage: errorMsg,
-    toolUsage: { queries: totalQueriesRun, openai: created, skippedDuplicates: skippedDupe, queryLog: queryLog.slice(0, 30) },
+    toolUsage: {
+      queries: totalQueriesRun,
+      openai: created,
+      skippedDuplicates: skippedDupe,
+      stopReason,
+      lastQueryIndex: queryIndex,
+      allQueriesCount: allQueries.length,
+      maxPagesUsed: target - created > 25 ? 5 : 3,
+      queryLog: queryLog.slice(0, 30),
+    },
   });
 
   await base44.entities.ActivityLog.create({
@@ -227,10 +307,24 @@ Deno.serve(async (req) => {
     actionType: "RUN_PROSPECT_SEARCH",
     entityType: "Campaign",
     entityId: campaignId,
-    payload: { created, target, coverage: `${Math.round(created/target*100)}%`, skippedDuplicates: skippedDupe, queriesRun: totalQueriesRun },
+    payload: {
+      created,
+      target,
+      coverage: `${Math.round(created / target * 100)}%`,
+      skippedDuplicates: skippedDupe,
+      queriesRun: totalQueriesRun,
+      stopReason,
+    },
     status: created > 0 ? "SUCCESS" : "ERROR",
     errorMessage: errorMsg,
   });
 
-  return Response.json({ success: created > 0, created, target, coverage: Math.round(created/target*100), skippedDuplicates: skippedDupe });
+  return Response.json({
+    success: created > 0,
+    created,
+    target,
+    coverage: Math.round(created / target * 100),
+    skippedDuplicates: skippedDupe,
+    stopReason,
+  });
 });
