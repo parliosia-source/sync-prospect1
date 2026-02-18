@@ -25,6 +25,14 @@ export default function Campaigns() {
     loadCampaigns();
   }, [user]);
 
+  // Poll list while any campaign is RUNNING
+  useEffect(() => {
+    const hasRunning = campaigns.some(c => c.status === "RUNNING");
+    if (!hasRunning) return;
+    const interval = setInterval(loadCampaigns, 3000);
+    return () => clearInterval(interval);
+  }, [campaigns]);
+
   const loadCampaigns = async () => {
     const filter = user?.role === "admin" ? {} : { ownerUserId: user?.email };
     const data = await base44.entities.Campaign.filter(filter, "-created_date", 50);
