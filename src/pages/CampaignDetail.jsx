@@ -324,6 +324,57 @@ export default function CampaignDetail() {
           </table>
         )}
       </div>
+
+      {/* Cancel Confirmation Dialog */}
+      <AlertDialog open={cancelDialog} onOpenChange={setCancelDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-orange-500" />
+              Annuler la recherche ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              La recherche sera stoppée et la campagne marquée comme annulée. Les {counts["Tous"]} prospects trouvés seront conservés.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex gap-2 justify-end">
+            <AlertDialogCancel>Maintenir la recherche</AlertDialogCancel>
+            <AlertDialogAction onClick={handleCancel} className="bg-orange-500 hover:bg-orange-600">
+              Annuler la recherche
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialog} onOpenChange={setDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              Supprimer la campagne ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irréversible. La campagne "{campaign?.name}" sera supprimée définitivement.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3 my-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={deleteProspects} onChange={(e) => setDeleteProspects(e.target.checked)} />
+              <span className="text-sm text-slate-700">Supprimer aussi les {counts["Tous"]} prospects liés</span>
+            </label>
+            {!deleteProspects && (
+              <div className="text-xs text-slate-500 bg-slate-50 p-2 rounded">Les prospects resteront dans la base mais seront orphelins (non liés à une campagne).</div>
+            )}
+          </div>
+          <div className="flex gap-2 justify-end">
+            <AlertDialogCancel>Conserver</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+              Supprimer la campagne
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
