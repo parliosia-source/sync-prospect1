@@ -162,7 +162,7 @@ export default function ProspectDetail() {
             {prospect.status === "QUALIFIÉ" && !prospect.leadId && (
               <Button size="sm" onClick={handleExport} disabled={isExporting} className="bg-purple-600 hover:bg-purple-700 gap-1.5">
                 {isExporting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                {isExporting ? "Export…" : "→ Pipeline"}
+                {isExporting ? "Export…" : "→ Suivi"}
               </Button>
             )}
           </div>
