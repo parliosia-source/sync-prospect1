@@ -28,6 +28,9 @@ export default function CampaignDetail() {
   const [isLoading, setIsLoading] = useState(true);
   const [analyzingIds, setAnalyzingIds] = useState(new Set());
   const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
+  const [cancelDialog, setCancelDialog] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [deleteProspects, setDeleteProspects] = useState(false);
 
   const pollRef = useRef(null);
 
