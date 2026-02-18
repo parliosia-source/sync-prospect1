@@ -132,7 +132,7 @@ export default function Pipeline() {
               <tr>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Entreprise</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden md:table-cell">Statut</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden lg:table-cell">Messages</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden lg:table-cell">Message</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden lg:table-cell">Prochaine action</th>
                 <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500">Actions</th>
               </tr>
