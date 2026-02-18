@@ -192,6 +192,27 @@ export default function Campaigns() {
       )}
 
       <CampaignModal open={showModal} onClose={() => setShowModal(false)} onSave={handleCreate} />
+
+      {/* Delete Dialog */}
+      <AlertDialog open={!!deleteDialog} onOpenChange={() => setDeleteDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              Supprimer "{deleteDialog?.name}" ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irréversible. La campagne et tous ses prospects seront supprimés définitivement.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex gap-2 justify-end">
+            <AlertDialogCancel>Conserver</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+              Supprimer
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
