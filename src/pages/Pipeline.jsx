@@ -4,10 +4,11 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { startOfDay, endOfDay, format } from "date-fns";
 import { fr } from "date-fns/locale";
-import { Building2, ChevronRight, AlertTriangle, Clock, LayoutGrid, List, Calendar } from "lucide-react";
+import { Building2, ChevronRight, AlertTriangle, Clock, LayoutGrid, List, Calendar, MessageSquare, CheckCircle2, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/shared/StatusBadge";
 import LeadBoard from "@/components/leads/LeadBoard";
+import { toast } from "sonner";
 
 const VIEWS = ["Aujourd'hui", "Overdue", "Tous", "Board"];
 const ACTION_LABELS = { FOLLOW_UP_J7: "Relance J+7", FOLLOW_UP_J14: "Relance J+14", CALL: "Appel", SEND_MESSAGE: "Message", CUSTOM: "Action" };
@@ -24,12 +25,25 @@ export default function Pipeline() {
 
   useEffect(() => {
     if (!user) return;
+    loadLeads();
+  }, [user]);
+
+  const loadLeads = () => {
     const f = user.role === "admin" ? {} : { ownerUserId: user.email };
     base44.entities.Lead.filter(f, "-updated_date", 200).then(data => {
       setLeads(data);
       setIsLoading(false);
     });
-  }, [user]);
+  };
+
+  const handleQuickStatus = async (lead, status) => {
+    await base44.entities.Lead.update(lead.id, {
+      status,
+      nextActionStatus: "CANCELED",
+    });
+    toast.success(status === "REPLIED" ? "Lead marqué : A répondu" : "Lead marqué : RDV");
+    loadLeads();
+  };
 
   const todayStart = startOfDay(new Date());
   const todayEnd = endOfDay(new Date());
@@ -99,44 +113,66 @@ export default function Pipeline() {
               <tr>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Entreprise</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden md:table-cell">Statut</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden lg:table-cell">Messages</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden lg:table-cell">Prochaine action</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 hidden lg:table-cell">Échéance</th>
-                <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500">Ouvrir</th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {filtered.map(lead => {
                 const isOverdue = lead.nextActionDueAt && lead.nextActionStatus === "ACTIVE" && new Date(lead.nextActionDueAt) < todayStart;
                 return (
-                  <tr key={lead.id} className={`hover:bg-slate-50 ${isOverdue ? "bg-red-50" : ""}`}>
+                  <tr key={lead.id} className={`hover:bg-slate-50 ${isOverdue ? "bg-red-50/40" : ""}`}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         {isOverdue && <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />}
-                        <Building2 className="w-4 h-4 text-slate-400 flex-shrink-0" />
                         <div>
                           <div className="font-medium text-slate-800">{lead.companyName}</div>
-                          <div className="text-xs text-slate-400">{lead.domain}</div>
+                          <div className="text-xs text-slate-400">{lead.domain || lead.industry || ""}</div>
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
                       <StatusBadge status={lead.status} type="lead" />
                     </td>
-                    <td className="px-4 py-3 hidden lg:table-cell text-xs text-slate-600">
-                      {ACTION_LABELS[lead.nextActionType] || "—"}
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      <div className="flex items-center gap-1 text-xs text-slate-500">
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        {lead.messageCount || 0}
+                        {lead.lastContactedAt && (
+                          <span className="text-slate-400 ml-1">· {format(new Date(lead.lastContactedAt), "d MMM", { locale: fr })}</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell text-xs">
                       {lead.nextActionDueAt && lead.nextActionStatus === "ACTIVE" ? (
-                        <span className={isOverdue ? "text-red-600 font-medium" : "text-slate-600"}>
-                          {format(new Date(lead.nextActionDueAt), "d MMM", { locale: fr })}
-                          {isOverdue && " (retard)"}
-                        </span>
-                      ) : "—"}
+                        <div>
+                          <div className={isOverdue ? "text-red-600 font-medium" : "text-slate-600"}>
+                            {ACTION_LABELS[lead.nextActionType] || "Action"}
+                          </div>
+                          <div className={`text-xs ${isOverdue ? "text-red-500" : "text-slate-400"}`}>
+                            {format(new Date(lead.nextActionDueAt), "d MMM", { locale: fr })}
+                            {isOverdue && " ⚠️"}
+                          </div>
+                        </div>
+                      ) : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Link to={createPageUrl("LeadDetail") + "?id=" + lead.id} className="p-1.5 text-slate-400 hover:text-blue-500 inline-flex">
-                        <ChevronRight className="w-4 h-4" />
-                      </Link>
+                      <div className="flex items-center justify-end gap-1">
+                        {lead.status === "CONTACTED" && (
+                          <>
+                            <button onClick={() => handleQuickStatus(lead, "REPLIED")} title="A répondu" className="p-1 rounded hover:bg-green-50 text-slate-400 hover:text-green-600">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleQuickStatus(lead, "MEETING")} title="RDV" className="p-1 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600">
+                              <PhoneCall className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                        <Link to={createPageUrl("LeadDetail") + "?id=" + lead.id} className="p-1.5 text-slate-400 hover:text-blue-500 inline-flex">
+                          <ChevronRight className="w-4 h-4" />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 );
