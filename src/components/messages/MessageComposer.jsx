@@ -102,18 +102,29 @@ export default function MessageComposer({ message: initialMessage, onUpdated }) 
   };
 
   const handleMarkSent = async () => {
-    if (msg.status !== "COPIED") {
-      toast.warning("Copiez d'abord le message avant de le marquer comme envoyé.");
-      return;
-    }
+    if (!window.confirm("Confirmer que ce message a bien été envoyé manuellement ?")) return;
     setIsMarkingSent(true);
-    await base44.functions.invoke("markMessageSent", {
+    // Save edits first if pending
+    const finalBody = hasEdited ? editedBody : (msg.generatedBody || msg.body || "");
+    const finalSubject = hasEdited ? editedSubject : (msg.generatedSubject || msg.subject || "");
+    const res = await base44.functions.invoke("markMessageSent", {
       messageId: msg.id,
       leadId: msg.leadId,
       channel: msg.channel,
+      subject: finalSubject,
+      body: finalBody,
+      editedSubject: hasEdited ? editedSubject : undefined,
+      editedBody: hasEdited ? editedBody : undefined,
     });
-    setMsg(m => ({ ...m, status: "SENT" }));
-    toast.success("Message marqué comme envoyé ✓");
+    setMsg(m => ({ ...m, status: "SENT", sentAt: new Date().toISOString() }));
+    const dueAt = res?.data?.nextActionDueAt;
+    const actionLabel = res?.data?.nextActionType === "FOLLOW_UP_J7" ? "Relance J+7" : "Relance J+14";
+    if (dueAt) {
+      const formatted = new Date(dueAt).toLocaleDateString("fr-CA", { day: "numeric", month: "long" });
+      toast.success(`Message envoyé ✅ — ${actionLabel} planifiée le ${formatted}`);
+    } else {
+      toast.success("Message marqué comme envoyé ✓");
+    }
     setIsMarkingSent(false);
     onUpdated?.();
   };
