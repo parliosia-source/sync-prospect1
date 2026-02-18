@@ -1,7 +1,9 @@
 import ReactMarkdown from "react-markdown";
-import { Bot, User, Copy, Check, ChevronRight, CheckCircle2, AlertCircle, Loader2, Clock } from "lucide-react";
+import { Bot, User, Copy, Check, ChevronRight, CheckCircle2, AlertCircle, Loader2, Clock, BookmarkPlus } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { base44 } from "@/api/base44Client";
+import { toast } from "sonner";
 
 const FunctionDisplay = ({ toolCall }) => {
   const [expanded, setExpanded] = useState(false);
@@ -37,9 +39,27 @@ const FunctionDisplay = ({ toolCall }) => {
   );
 };
 
-export default function MessageBubble({ message }) {
+export default function MessageBubble({ message, leadId, prospectId, user }) {
   const [copied, setCopied] = useState(false);
+  const [savedDraft, setSavedDraft] = useState(false);
   const isUser = message.role === "user";
+  const isContextual = !!(leadId || prospectId);
+
+  const handleSaveDraft = async () => {
+    await base44.entities.Message.create({
+      ownerUserId: user?.email,
+      leadId: leadId || null,
+      prospectId: prospectId || null,
+      channel: "LINKEDIN",
+      subject: "",
+      body: message.content,
+      status: "DRAFT",
+      generatedByAI: true,
+    });
+    setSavedDraft(true);
+    toast.success("Brouillon sauvegardé");
+    setTimeout(() => setSavedDraft(false), 3000);
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content || "");
@@ -82,12 +102,23 @@ export default function MessageBubble({ message }) {
                 >
                   {message.content}
                 </ReactMarkdown>
-                <button
-                  onClick={handleCopy}
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100"
-                >
-                  {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3 text-slate-400" />}
-                </button>
+                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {isContextual && (
+                    <button
+                      onClick={handleSaveDraft}
+                      title="Sauvegarder en brouillon"
+                      className="p-1 rounded hover:bg-slate-100"
+                    >
+                      <BookmarkPlus className={cn("w-3 h-3", savedDraft ? "text-green-500" : "text-slate-400")} />
+                    </button>
+                  )}
+                  <button
+                    onClick={handleCopy}
+                    className="p-1 rounded hover:bg-slate-100"
+                  >
+                    {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3 text-slate-400" />}
+                  </button>
+                </div>
               </>
             )}
           </div>
