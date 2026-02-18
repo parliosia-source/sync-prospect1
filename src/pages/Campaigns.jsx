@@ -157,6 +157,17 @@ export default function Campaigns() {
                       </Button>
                     )}
 
+                    {["DONE_PARTIAL", "FAILED", "CANCELED", "COMPLETED", "DRAFT"].includes(c.status) && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setDeleteDialog({ campaignId: c.id, name: c.name })}
+                        className="text-slate-400 hover:text-red-500 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+
                     <Link to={createPageUrl("CampaignDetail") + "?id=" + c.id} className="p-1.5 text-slate-400 hover:text-blue-500">
                       <ChevronRight className="w-5 h-5" />
                     </Link>
