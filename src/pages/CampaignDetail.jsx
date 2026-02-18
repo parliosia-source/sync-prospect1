@@ -122,7 +122,26 @@ export default function CampaignDetail() {
             </div>
           )}
 
-          {/* Progress bar */}
+          {/* Analysis progress bar */}
+          {campaign.analysisStatus === "RUNNING" && !analysisIsStale && (
+            <div className="mt-3 bg-purple-50 border border-purple-100 rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between text-xs text-purple-700 mb-1.5">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  Analyse IA en cours… (continue même si vous quittez la page)
+                </span>
+                <span>{campaign.analysisProgressPct || 0}%</span>
+              </div>
+              <div className="h-2 bg-purple-100 rounded-full overflow-hidden">
+                <div className="h-2 bg-purple-500 rounded-full transition-all duration-500" style={{ width: `${campaign.analysisProgressPct || 0}%` }} />
+              </div>
+              <div className="text-xs text-purple-400 mt-1">
+                {campaign.countAnalyzed || 0} analysés sur {counts["Tous"]} prospects
+              </div>
+            </div>
+          )}
+
+          {/* Search progress bar */}
           {campaign.status === "RUNNING" && (
             <div className="mt-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
               <div className="flex items-center justify-between text-xs text-blue-700 mb-1.5">
