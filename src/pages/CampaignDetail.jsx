@@ -162,12 +162,28 @@ export default function CampaignDetail() {
 
           {/* DONE_PARTIAL — informational, not an error */}
           {campaign.status === "DONE_PARTIAL" && campaign.errorMessage && (
-            <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex items-start gap-2">
-              <span className="text-amber-500 mt-0.5">⚠</span>
-              <div>
-                <span className="font-medium">Recherche incomplète : </span>{campaign.errorMessage}
+            <div className={`mt-3 rounded-xl px-4 py-3 text-sm flex items-start gap-2 ${
+              campaign.toolUsage?.stopReason === "BUDGET_GUARD" 
+                ? "bg-red-50 border border-red-200 text-red-800" 
+                : "bg-amber-50 border border-amber-200 text-amber-800"
+            }`}>
+              <span className={`mt-0.5 ${campaign.toolUsage?.stopReason === "BUDGET_GUARD" ? "text-red-500" : "text-amber-500"}`}>⚠</span>
+              <div className="flex-1">
+                <span className="font-medium">{campaign.toolUsage?.stopReason === "BUDGET_GUARD" ? "Budget Brave atteint : " : "Recherche incomplète : "}</span>
+                {campaign.errorMessage}
+                {campaign.toolUsage?.braveRequestsUsed !== undefined && (
+                  <div className="text-xs mt-1 opacity-75">
+                    Requêtes Brave utilisées : {campaign.toolUsage.braveRequestsUsed} / {campaign.toolUsage.braveMaxRequests || 250}
+                  </div>
+                )}
                 <div className="mt-1.5">
-                  <button onClick={handleReLaunch} className="text-xs text-amber-700 underline hover:text-amber-900">Relancer la recherche</button>
+                  <button onClick={handleReLaunch} className={`text-xs underline ${
+                    campaign.toolUsage?.stopReason === "BUDGET_GUARD"
+                      ? "text-red-700 hover:text-red-900"
+                      : "text-amber-700 hover:text-amber-900"
+                  }`}>
+                    Relancer la recherche
+                  </button>
                 </div>
               </div>
             </div>
