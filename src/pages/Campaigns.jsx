@@ -24,6 +24,7 @@ export default function Campaigns() {
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [runningIds, setRunningIds] = useState(new Set());
+  const [deleteDialog, setDeleteDialog] = useState(null); // {campaignId, name}
 
   useEffect(() => {
     base44.auth.me().then(setUser);
