@@ -78,5 +78,9 @@ ${template.body}` : "";
       .replace(/\{senderTitle\}/g, "Représentant(e) SYNC Productions");
   }
 
+  // Return both legacy fields + new structured fields
+  result.generatedBody = result.body;
+  result.generatedSubject = result.subject || null;
+
   return Response.json(result);
 });
