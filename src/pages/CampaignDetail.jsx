@@ -186,10 +186,10 @@ export default function CampaignDetail() {
               </div>
               <div className="text-xs text-blue-500 mt-1.5">
                 {(campaign.progressPct || 0) < 20 ? "Initialisation des requêtes…" :
-                 (campaign.progressPct || 0) < 60 ? "Recherche & collecte de résultats…" :
-                 (campaign.progressPct || 0) < 85 ? "Normalisation & déduplication…" :
+                 (campaign.progressPct || 0) < 70 ? "Recherche & collecte de résultats…" :
+                 (campaign.progressPct || 0) < 87 ? "Fallbacks élargis…" :
                  "Finalisation…"}
-                {" · "}{counts["Tous"]} trouvés jusqu'ici
+                {" · "}<strong>{counts["Tous"]}</strong>/{campaign.targetCount} prospects trouvés
               </div>
             </div>
           )}
