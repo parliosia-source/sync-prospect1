@@ -178,20 +178,39 @@ Deno.serve(async (req) => {
   const queryLog = [];
 
   const runQuery = async (query, maxPagesOverride) => {
+    // Budget guard: stop if Brave requests exhausted
+    if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) {
+      budgetGuardTriggered = true;
+      return;
+    }
+
     // Dynamic maxPages: go deeper when far from target
     const remaining = target - created;
-    const maxPages = maxPagesOverride ?? (remaining > 25 ? 5 : 3);
+    const maxPages = maxPagesOverride ?? Math.min(BRAVE_MAX_PAGES, remaining > 50 ? 7 : 5);
 
-    for (let page = 0; page < maxPages && created < target; page++) {
+    for (let page = 0; page < maxPages && created < target && !budgetGuardTriggered; page++) {
       let results = [];
       try {
         const braveResult = await braveSearch(query, 10, page * 10);
+        braveRequestsUsed++;
+        
+        // Capture rate limit headers
+        if (braveResult.rateLimitRemaining !== undefined) lastRateLimitRemaining = braveResult.rateLimitRemaining;
+        if (braveResult.rateLimitReset !== undefined) lastRateLimitReset = braveResult.rateLimitReset;
+        
+        // Check if we should pause due to low remaining
+        if (lastRateLimitRemaining >= 0 && lastRateLimitRemaining <= BRAVE_MIN_REMAINING) {
+          rateLimitHit = true;
+          break;
+        }
+        
         if (braveResult.rateLimited) {
           rateLimitHit = true;
           break;
         }
         results = braveResult.results;
       } catch (_) {}
+      
       if (results.length === 0 && SERPAPI_KEY) {
         try { results = await serpSearch(query, page * 10); } catch (_) {}
       }
@@ -225,7 +244,7 @@ Deno.serve(async (req) => {
             industry: normalized.industry,
             location: normalized.location,
             entityType: normalized.entityType,
-            status: "NOUVEAU",
+            status: "NUOVO",
             serpSnippet: batch[i]?.snippet || "",
             sourceUrl: batch[i]?.url || batch[i]?.link || "",
           });
