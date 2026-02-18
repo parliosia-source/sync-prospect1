@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
@@ -107,8 +108,8 @@ export default function ProspectDetail() {
         </Link>
         {prospect.leadId && (
           <Link to={createPageUrl("LeadDetail") + "?id=" + prospect.leadId}
-            className="ml-auto inline-flex items-center gap-1 text-sm text-blue-600 hover:underline">
-            Voir dans le Pipeline <ChevronRight className="w-3.5 h-3.5" />
+            className="ml-auto inline-flex items-center gap-1 text-sm text-blue-600 hover:underline bg-blue-50 px-2.5 py-1 rounded-lg">
+            ✓ Déjà dans Suivi → Voir le lead <ChevronRight className="w-3.5 h-3.5" />
           </Link>
         )}
       </div>
