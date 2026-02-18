@@ -89,7 +89,7 @@ export default function Dashboard() {
                   </span>
                 )}
               </div>
-              <Link to={createPageUrl("Pipeline")} className="text-xs text-blue-600 hover:underline">Voir tout dans Suivi →</Link>
+              <Link to={createPageUrl("Pipeline")} className="text-xs text-blue-600 hover:underline">Voir tout le Suivi →</Link>
             </div>
 
             {isLoading ? (
