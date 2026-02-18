@@ -78,6 +78,17 @@ export default function CampaignDetail() {
     await loadAll();
   };
 
+  const handleCancel = async () => {
+    await base44.functions.invoke("cancelCampaign", { campaignId });
+    setCancelDialog(false);
+    await loadAll();
+  };
+
+  const handleDelete = async () => {
+    await base44.functions.invoke("deleteCampaign", { campaignId, deleteProspects });
+    window.location.href = createPageUrl("Campaigns");
+  };
+
   const handleAnalyzeAll = async () => {
     setIsAnalyzingAll(true);
     await base44.functions.invoke("analyzeCampaignProspects", { campaignId });
