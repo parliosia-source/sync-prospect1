@@ -94,8 +94,34 @@ export default function LeadDetail() {
   };
 
   const handleUpdateStatus = async (status) => {
-    await base44.entities.Lead.update(leadId, { status });
-    setLead(l => ({ ...l, status }));
+    const updates = { status };
+    // Stop follow-ups when replied/meeting/won/lost
+    if (["REPLIED", "MEETING", "CLOSED_WON", "CLOSED_LOST"].includes(status)) {
+      updates.nextActionStatus = "CANCELED";
+      updates.nextActionDueAt = null;
+    }
+    await base44.entities.Lead.update(leadId, updates);
+    setLead(l => ({ ...l, ...updates }));
+
+    // Log the status change
+    const actionTypeMap = {
+      REPLIED: "LEAD_REPLIED",
+      MEETING: "LEAD_MEETING",
+      CLOSED_WON: "LEAD_CLOSED_WON",
+      CLOSED_LOST: "LEAD_CLOSED_LOST",
+    };
+    const actionType = actionTypeMap[status] || "LEAD_STATUS_CHANGED";
+    const user = await base44.auth.me();
+    await base44.entities.ActivityLog.create({
+      ownerUserId: user?.email,
+      actionType,
+      entityType: "Lead",
+      entityId: leadId,
+      payload: { status, relancesStopped: !!updates.nextActionStatus },
+      status: "SUCCESS",
+    });
+    if (status === "REPLIED") toast.success("✓ A répondu — relances arrêtées");
+    if (status === "MEETING") toast.success("✓ RDV — relances arrêtées");
   };
 
   if (!lead) return (
