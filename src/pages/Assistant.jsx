@@ -141,8 +141,12 @@ export default function Assistant() {
                 Contexte: {contextEntity.data.companyName} ({contextEntity.type})
               </div>
             ) : (
-              <p className="text-xs text-slate-400">Mode général — prospection, scripts, objections, angles</p>
+              <p className="text-xs text-slate-400">Prospection, scripts, objections, recherche événements</p>
             )}
+          </div>
+          <div className="ml-auto flex items-center gap-1.5 text-xs text-green-600 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
+            <Globe className="w-3 h-3" />
+            Web activé
           </div>
         </div>
 
