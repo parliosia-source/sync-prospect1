@@ -234,16 +234,10 @@ Deno.serve(async (req) => {
       totalQueriesRun++;
       let pageCreated = 0;
 
-      const batches = [];
-      for (let i = 0; i < results.length; i += 5) batches.push(results.slice(i, i + 5));
-
-      for (const batch of batches) {
-        if (created >= target) break;
-        const normalizations = await Promise.allSettled(batch.map(r => normalizeResult(r).catch(() => null)));
-        for (let i = 0; i < batch.length; i++) {
-            if (created >= target) break;
-            const normalized = normalizeResult(batch[i]);
-            if (!normalized) continue;
+      for (const r of results) {
+          if (created >= target) break;
+          const normalized = normalizeResult(r);
+          if (!normalized) continue;
             const { domain } = normalized;
             if (existingDomains.has(domain) || kbDomains.has(domain)) { skippedDupe++; continue; }
 
