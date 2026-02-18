@@ -56,11 +56,16 @@ export default function CampaignDetail() {
   };
 
   const handleAnalyzeAll = async () => {
-    const toAnalyze = filtered.filter(p => p.status === "NOUVEAU");
-    for (const p of toAnalyze) {
-      await handleAnalyze(p);
-    }
+    setIsAnalyzingAll(true);
+    await base44.functions.invoke("analyzeCampaignProspects", { campaignId });
+    setIsAnalyzingAll(false);
+    await loadAll();
   };
+
+  // Check if analysis heartbeat is stale (> 2 minutes = stuck)
+  const analysisIsStale = campaign?.analysisStatus === "RUNNING" &&
+    campaign?.analysisLastHeartbeatAt &&
+    (Date.now() - new Date(campaign.analysisLastHeartbeatAt).getTime()) > 2 * 60 * 1000;
 
   const filtered = activeTab === "Tous" ? prospects : prospects.filter(p => p.status === activeTab);
   const counts = TABS.reduce((acc, t) => {
