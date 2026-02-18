@@ -60,6 +60,12 @@ export default function CampaignDetail() {
     setAnalyzingIds(s => { const n = new Set(s); n.delete(prospect.id); return n; });
   };
 
+  const handleReLaunch = async () => {
+    await base44.entities.Campaign.update(campaignId, { status: "RUNNING", progressPct: 0, errorMessage: null });
+    base44.functions.invoke("runProspectSearch", { campaignId });
+    await loadAll();
+  };
+
   const handleAnalyzeAll = async () => {
     setIsAnalyzingAll(true);
     await base44.functions.invoke("analyzeCampaignProspects", { campaignId });
