@@ -106,12 +106,14 @@ function buildBroadFallbacks(campaign, loc) {
 }
 
 async function normalizeResult(r) {
-  const url = r.url || r.link;
-  if (!url) return null;
-  const domain = extractDomain(url);
-  if (!domain) return null;
-  const normalized = await callOpenAI(
-    `Voici un résultat de recherche web. Extrais les infos de l'entreprise si c'est une entreprise/organisation qui ORGANISE ses propres événements corporatifs (pas une agence event planner).
+   const url = r.url || r.link;
+   if (!url) return null;
+   const domain = extractDomain(url);
+   if (!domain) return null;
+
+   try {
+     const normalized = await callOpenAI(
+       `Voici un résultat de recherche web. Extrais les infos de l'entreprise si c'est une entreprise/organisation qui ORGANISE ses propres événements corporatifs (pas une agence event planner).
 
 URL: ${url}
 Titre: ${r.title || ""}
@@ -120,8 +122,11 @@ Snippet: ${r.snippet || ""} ${(r.extra_snippets || []).slice(0, 2).join(" ")}
 Réponds en JSON: { "companyName": string|null, "website": string|null, "domain": string|null, "industry": string|null, "location": {"city":string,"region":string,"country":string}, "entityType": "COMPANY|ASSOCIATION|PROFESSIONAL_ORG|GOV|OTHER", "isValid": boolean, "reason": string }
 
 isValid = true seulement si: 1) c'est clairement une entreprise/org qui organise ses propres événements, 2) companyName ET website sont présents, 3) ce n'est PAS une agence event planner, organisateur professionnel, ou répertoire de fournisseurs.`
-  );
-  return { normalized, domain };
+     );
+     return { normalized, domain };
+   } catch (e) {
+     return null;
+   }
 }
 
 Deno.serve(async (req) => {
