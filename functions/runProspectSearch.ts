@@ -129,40 +129,30 @@ Deno.serve(async (req) => {
     kbEntities.forEach(e => { if (e.domain) kbDomains.add(e.domain); });
   } catch (_) {}
 
-  const queries = buildQueryVariants(campaign, loc);
+  let allQueries = buildQueryVariants(campaign, loc);
   let queryIndex = 0;
   let skippedDupe = 0;
   let totalQueriesRun = 0;
+  const queryLog = [];
 
-  while (created < target && queryIndex < queries.length) {
-    const pct = 10 + Math.round((queryIndex / queries.length) * 75);
-    await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
-
-    // Try up to 3 pages per query (0, 10, 20) to maximize results
-    for (let page = 0; page < 3 && created < target; page++) {
+  const runQuery = async (query, maxPages = 3) => {
+    for (let page = 0; page < maxPages && created < target; page++) {
       let results = [];
-      try {
-        results = await braveSearch(queries[queryIndex], 10, page * 10);
-      } catch (_) {}
+      try { results = await braveSearch(query, 10, page * 10); } catch (_) {}
       if (results.length === 0 && SERPAPI_KEY) {
-        try {
-          results = await serpSearch(queries[queryIndex], page * 10);
-        } catch (_) {}
+        try { results = await serpSearch(query, page * 10); } catch (_) {}
       }
-      if (results.length === 0) break; // No more results for this query
+      if (results.length === 0) break;
 
       totalQueriesRun++;
+      let pageCreated = 0;
 
-      // Normalize in parallel batches of 5
       const batches = [];
-      for (let i = 0; i < results.length; i += 5) {
-        batches.push(results.slice(i, i + 5));
-      }
+      for (let i = 0; i < results.length; i += 5) batches.push(results.slice(i, i + 5));
 
       for (const batch of batches) {
         if (created >= target) break;
         const normalizations = await Promise.allSettled(batch.map(r => normalizeResult(r).catch(() => null)));
-
         for (let i = 0; i < normalizations.length; i++) {
           if (created >= target) break;
           const result = normalizations[i];
@@ -171,10 +161,7 @@ Deno.serve(async (req) => {
           if (!normalized?.isValid || !normalized?.companyName || !normalized?.website) continue;
           const cleanDomain = extractDomain(normalized.website) || domain;
           if (!cleanDomain) continue;
-          if (existingDomains.has(cleanDomain) || kbDomains.has(cleanDomain)) {
-            skippedDupe++;
-            continue;
-          }
+          if (existingDomains.has(cleanDomain) || kbDomains.has(cleanDomain)) { skippedDupe++; continue; }
 
           await base44.entities.Prospect.create({
             campaignId,
@@ -192,11 +179,36 @@ Deno.serve(async (req) => {
 
           existingDomains.add(cleanDomain);
           created++;
+          pageCreated++;
         }
       }
+      queryLog.push({ query: query.slice(0, 80), page, resultsRaw: results.length, added: pageCreated });
     }
+  };
 
+  // Phase 1: run all queries
+  while (created < target && queryIndex < allQueries.length) {
+    const pct = 10 + Math.round((queryIndex / allQueries.length) * 60);
+    await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
+    await runQuery(allQueries[queryIndex]);
     queryIndex++;
+  }
+
+  // Phase 2: if < 60% of target, run broadened fallback queries
+  if (created < target * 0.6) {
+    const sector = campaign.industrySectors?.slice(0, 2).join(" ") || "";
+    const fallbacks = [
+      `organisation ${loc} événement annuel réunion`,
+      `entreprise ${loc} ${sector} conférence`,
+      `association ${loc} ${sector} membres assemblée`,
+      `"${loc}" événements corporatifs B2B prestataires`,
+      `chambres de commerce ${loc} membres annuaire`,
+    ];
+    await base44.entities.Campaign.update(campaignId, { progressPct: 75 });
+    for (const q of fallbacks) {
+      if (created >= target) break;
+      await runQuery(q, 2);
+    }
   }
 
   await base44.entities.Campaign.update(campaignId, {
