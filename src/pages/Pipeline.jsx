@@ -16,6 +16,7 @@ const ACTION_LABELS = { FOLLOW_UP_J7: "Relance J+7", FOLLOW_UP_J14: "Relance J+1
 export default function Pipeline() {
   const [user, setUser] = useState(null);
   const [leads, setLeads] = useState([]);
+  const [draftsByLead, setDraftsByLead] = useState({});
   const [activeView, setActiveView] = useState("Tous");
   const [isLoading, setIsLoading] = useState(true);
 
