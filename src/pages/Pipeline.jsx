@@ -54,19 +54,29 @@ export default function Pipeline() {
   };
 
   const handleQuickStatus = async (lead, status) => {
-    const updates = { status, nextActionStatus: "DONE" };
+    const updates = { status };
     if (status === "REPLIED") {
-      // Schedule a follow-up J+7
-      updates.nextActionType = "FOLLOW_UP_J7";
-      updates.nextActionDueAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      updates.nextActionStatus = "ACTIVE";
+      // Stop active follow-ups — commercial will decide next step manually
+      updates.nextActionStatus = "CANCELED";
+      updates.nextActionDueAt = null;
     } else if (status === "MEETING") {
-      updates.nextActionType = "CALL";
-      updates.nextActionDueAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
-      updates.nextActionStatus = "ACTIVE";
+      updates.nextActionStatus = "CANCELED";
+      updates.nextActionDueAt = null;
     }
     await base44.entities.Lead.update(lead.id, updates);
-    toast.success(status === "REPLIED" ? "✓ A répondu — relance J+7 planifiée" : "✓ RDV — appel planifié dans 2j");
+
+    // Log
+    const actionTypeMap = { REPLIED: "LEAD_REPLIED", MEETING: "LEAD_MEETING" };
+    await base44.entities.ActivityLog.create({
+      ownerUserId: user?.email,
+      actionType: actionTypeMap[status] || "LEAD_STATUS_CHANGED",
+      entityType: "Lead",
+      entityId: lead.id,
+      payload: { status, relancesStopped: true },
+      status: "SUCCESS",
+    });
+
+    toast.success(status === "REPLIED" ? "✓ A répondu — relances arrêtées" : "✓ RDV enregistré — relances arrêtées");
     loadLeads();
   };
 
