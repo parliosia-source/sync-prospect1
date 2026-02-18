@@ -244,7 +244,7 @@ Deno.serve(async (req) => {
             industry: normalized.industry,
             location: normalized.location,
             entityType: normalized.entityType,
-            status: "NUOVO",
+            status: "NOUVEAU",
             serpSnippet: batch[i]?.snippet || "",
             sourceUrl: batch[i]?.url || batch[i]?.link || "",
           });
