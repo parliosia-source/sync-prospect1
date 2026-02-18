@@ -281,7 +281,7 @@ export default function ProspectDetail() {
         <h3 className="font-semibold text-sm text-slate-800 mb-4 flex items-center gap-2">
           <Mail className="w-4 h-4 text-slate-500" /> Générer un message
         </h3>
-        <div className="flex flex-wrap gap-3 mb-4">
+        <div className="flex flex-wrap gap-3">
           <Select value={msgChannel} onValueChange={setMsgChannel}>
             <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -310,33 +310,23 @@ export default function ProspectDetail() {
             </Select>
           )}
           <Button onClick={handleGenerate} disabled={isGenerating} className="bg-blue-600 hover:bg-blue-700 gap-2">
-            {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Brain className="w-3.5 h-3.5" />}
+            {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
             {isGenerating ? "Génération…" : "Générer"}
           </Button>
         </div>
-
-        {generatedMsg && (
-          <div className="space-y-3">
-            {generatedMsg.subject && (
-              <div className="p-3 bg-slate-50 rounded-lg">
-                <div className="text-xs font-medium text-slate-500 mb-1">Sujet</div>
-                <div className="text-sm text-slate-800">{generatedMsg.subject}</div>
-              </div>
-            )}
-            <div className="p-3 bg-slate-50 rounded-lg">
-              <div className="text-xs font-medium text-slate-500 mb-1">Message</div>
-              <div className="text-sm text-slate-800 whitespace-pre-wrap">{generatedMsg.body}</div>
-            </div>
-            <div className="flex gap-2">
-              <CopyButton text={generatedMsg.body} label="Copier le message" />
-              <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={isSaving} className="gap-1.5">
-                {isSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-                {isSaving ? "Sauvegarde…" : "Sauvegarder brouillon"}
-              </Button>
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* Composers */}
+      {draftMessages.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="font-semibold text-sm text-slate-700 flex items-center gap-2">
+            <Brain className="w-4 h-4 text-purple-500" /> Messages en cours ({draftMessages.length})
+          </h3>
+          {draftMessages.map(m => (
+            <MessageComposer key={m.id} message={m} onUpdated={loadData} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
