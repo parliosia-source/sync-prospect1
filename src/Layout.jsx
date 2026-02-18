@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { label: "Dashboard", page: "Dashboard", icon: LayoutDashboard },
   { label: "Campagnes", page: "Campaigns", icon: Search },
-  { label: "Pipeline", page: "Pipeline", icon: Target },
+  { label: "Suivi", page: "Pipeline", icon: Target },
   { label: "Assistant IA", page: "Assistant", icon: Bot },
 ];
 

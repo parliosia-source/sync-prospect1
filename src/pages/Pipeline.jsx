@@ -47,7 +47,7 @@ export default function Pipeline() {
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Pipeline</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Suivi des leads</h1>
           <p className="text-sm text-slate-500 mt-0.5">{leads.length} leads · {leads.filter(l => l.nextActionStatus === "ACTIVE").length} actions actives</p>
         </div>
       </div>
