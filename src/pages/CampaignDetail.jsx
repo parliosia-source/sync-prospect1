@@ -120,10 +120,29 @@ export default function CampaignDetail() {
             </div>
           </div>
 
+          {/* DONE_PARTIAL — informational, not an error */}
+          {campaign.status === "DONE_PARTIAL" && campaign.errorMessage && (
+            <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex items-start gap-2">
+              <span className="text-amber-500 mt-0.5">⚠</span>
+              <div>
+                <span className="font-medium">Recherche incomplète : </span>{campaign.errorMessage}
+                <div className="mt-1.5">
+                  <button onClick={handleReLaunch} className="text-xs text-amber-700 underline hover:text-amber-900">Relancer la recherche</button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Error */}
           {campaign.status === "FAILED" && campaign.errorMessage && (
-            <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center gap-2">
-              <span className="font-medium">Erreur :</span> {campaign.errorMessage}
+            <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-start gap-2">
+              <span className="font-medium">Erreur :</span>
+              <div>
+                {campaign.errorMessage}
+                <div className="mt-1.5">
+                  <button onClick={handleReLaunch} className="text-xs text-red-600 underline hover:text-red-900">Relancer la recherche</button>
+                </div>
+              </div>
             </div>
           )}
 
