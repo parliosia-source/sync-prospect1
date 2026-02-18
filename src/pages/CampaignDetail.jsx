@@ -146,6 +146,17 @@ export default function CampaignDetail() {
                   Reprendre l'analyse
                 </Button>
               )}
+              {campaign.status === "RUNNING" && (
+                <Button variant="outline" onClick={() => setCancelDialog(true)} className="gap-2 border-orange-300 text-orange-700 hover:bg-orange-50">
+                  Annuler la recherche
+                </Button>
+              )}
+              {["DONE_PARTIAL", "FAILED", "CANCELED", "COMPLETED", "DRAFT"].includes(campaign.status) && (
+                <Button variant="outline" onClick={() => setDeleteDialog(true)} className="gap-2 text-red-600 border-red-200 hover:bg-red-50">
+                  <Trash2 className="w-4 h-4" />
+                  Supprimer
+                </Button>
+              )}
             </div>
           </div>
 
