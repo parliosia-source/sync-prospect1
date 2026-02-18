@@ -259,7 +259,7 @@ Deno.serve(async (req) => {
   };
 
   // Phase 1: run all queries
-  while (created < target && queryIndex < allQueries.length && !rateLimitHit) {
+  while (created < target && queryIndex < allQueries.length && !rateLimitHit && !budgetGuardTriggered) {
     const pct = 10 + Math.round((queryIndex / allQueries.length) * 55);
     await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
     await runQuery(allQueries[queryIndex]);
@@ -267,7 +267,7 @@ Deno.serve(async (req) => {
   }
 
   // Phase 2: broadened fallbacks if < 60% of target
-  if (created < target * 0.6 && !rateLimitHit) {
+  if (created < target * 0.6 && !rateLimitHit && !budgetGuardTriggered) {
     const sector = campaign.industrySectors?.slice(0, 2).join(" ") || "";
     const fallbacks = [
       `organisation ${loc} événement annuel réunion`,
@@ -278,17 +278,17 @@ Deno.serve(async (req) => {
     ];
     await base44.entities.Campaign.update(campaignId, { progressPct: 70 });
     for (const q of fallbacks) {
-      if (created >= target) break;
+      if (created >= target || budgetGuardTriggered) break;
       await runQuery(q, 2);
     }
   }
 
-  // Phase 3: broad fallbacks without exclude filter, if still short and no rate limit
-  if (created < target && (target - created) >= 10 && !rateLimitHit) {
+  // Phase 3: broad fallbacks without exclude filter, if still short and no rate limit/budget guard
+  if (created < target && (target - created) >= 10 && !rateLimitHit && !budgetGuardTriggered) {
     const broadFallbacks = buildBroadFallbacks(campaign, loc);
     await base44.entities.Campaign.update(campaignId, { progressPct: 85 });
     for (const q of broadFallbacks) {
-      if (created >= target) break;
+      if (created >= target || budgetGuardTriggered) break;
       await runQuery(q, 2);
     }
   }
