@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { ArrowLeft, Globe, Brain, RefreshCw, CheckCircle2, Calendar, MessageSquare, Building2, User, Clock } from "lucide-react";
+import { ArrowLeft, Globe, Brain, RefreshCw, CheckCircle2, Calendar, MessageSquare, Building2, User, Clock, FileEdit, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -269,6 +269,16 @@ export default function LeadDetail() {
           </div>
         )}
       </div>
+
+      {/* Draft indicator */}
+      {messages.some(m => m.status === "DRAFT") && !generatedMsg && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2">
+          <FileEdit className="w-4 h-4 text-amber-600 flex-shrink-0" />
+          <span className="text-sm text-amber-700">
+            {messages.filter(m => m.status === "DRAFT").length} brouillon(s) en attente — cliquez "Générer" pour créer un nouveau message ou marquez le dernier comme envoyé.
+          </span>
+        </div>
+      )}
 
       {/* Message history */}
       {messages.filter(m => m.status === "SENT").length > 0 && (
