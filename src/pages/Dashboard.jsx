@@ -4,16 +4,18 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
-import { ChevronRight, Clock, AlertTriangle, Star, Building2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { ChevronRight, Clock, AlertTriangle, Star, Building2, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import GazetteBlock from "@/components/dashboard/GazetteBlock";
 import PipelineHealth from "@/components/dashboard/PipelineHealth";
+import CampaignModal from "@/components/campaigns/CampaignModal";
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
   const [leads, setLeads] = useState([]);
   const [topProspects, setTopProspects] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [showCampaignModal, setShowCampaignModal] = useState(false);
 
   useEffect(() => {
     base44.auth.me().then(setUser);
@@ -50,9 +52,14 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 space-y-5 max-w-7xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-        <p className="text-sm text-slate-500">{format(new Date(), "EEEE d MMMM yyyy", { locale: fr })}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
+          <p className="text-sm text-slate-500">{format(new Date(), "EEEE d MMMM yyyy", { locale: fr })}</p>
+        </div>
+        <Button onClick={() => setShowCampaignModal(true)} className="bg-blue-600 hover:bg-blue-700 gap-2">
+          <Plus className="w-4 h-4" /> Nouvelle campagne
+        </Button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -82,7 +89,7 @@ export default function Dashboard() {
                   </span>
                 )}
               </div>
-              <Link to={createPageUrl("Pipeline")} className="text-xs text-blue-600 hover:underline">Voir tout →</Link>
+              <Link to={createPageUrl("Pipeline")} className="text-xs text-blue-600 hover:underline">Voir tout dans Suivi →</Link>
             </div>
 
             {isLoading ? (
