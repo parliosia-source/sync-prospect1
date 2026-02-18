@@ -100,6 +100,13 @@ export default function CampaignDetail() {
             )}
           </div>
 
+          {/* Error */}
+          {campaign.status === "FAILED" && campaign.errorMessage && (
+            <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+              <span className="font-medium">Erreur :</span> {campaign.errorMessage}
+            </div>
+          )}
+
           {/* Progress bar */}
           {campaign.status === "RUNNING" && (
             <div className="mt-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
