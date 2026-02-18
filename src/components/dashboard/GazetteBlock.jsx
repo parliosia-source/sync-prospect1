@@ -16,6 +16,7 @@ export default function GazetteBlock() {
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState(false);
 
   useEffect(() => { loadItems(); }, []);
 
@@ -25,10 +26,20 @@ export default function GazetteBlock() {
     setIsLoading(false);
   };
 
-  const handleRefresh = async () => {
+  const handleRefresh = async (attempt = 1) => {
     setIsRefreshing(true);
-    await base44.functions.invoke("refreshGazette", {});
-    await loadItems();
+    setRefreshError(false);
+    try {
+      await base44.functions.invoke("refreshGazette", {});
+      await loadItems();
+    } catch (err) {
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 2000));
+        return handleRefresh(attempt + 1);
+      }
+      setRefreshError(true);
+      // Keep existing items visible (don't clear)
+    }
     setIsRefreshing(false);
   };
 
@@ -46,6 +57,12 @@ export default function GazetteBlock() {
         </Button>
       </div>
 
+      {refreshError && (
+        <div className="px-4 py-2 bg-red-50 border-b border-red-100 flex items-center justify-between gap-2">
+          <span className="text-xs text-red-600">Gazette temporairement indisponible.</span>
+          <button onClick={() => handleRefresh()} className="text-xs text-red-600 underline font-medium">Réessayer</button>
+        </div>
+      )}
       {isLoading ? (
         <div className="p-4 space-y-2">
           {[1, 2, 3].map(i => (

@@ -32,13 +32,22 @@ export default function Campaigns() {
     setIsLoading(false);
   };
 
-  const handleCreate = async (formData) => {
+  const handleCreate = async (formData, launch = false) => {
     const camp = await base44.entities.Campaign.create({
       ...formData,
       ownerUserId: user.email,
       status: "DRAFT",
     });
-    await loadCampaigns();
+    if (launch) {
+      setRunningIds(s => new Set([...s, camp.id]));
+      base44.functions.invoke("runProspectSearch", { campaignId: camp.id })
+        .finally(() => {
+          setRunningIds(s => { const n = new Set(s); n.delete(camp.id); return n; });
+        });
+      window.location.href = createPageUrl("CampaignDetail") + "?id=" + camp.id;
+    } else {
+      await loadCampaigns();
+    }
   };
 
   const handleRun = async (campaign) => {

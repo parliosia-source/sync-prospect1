@@ -47,26 +47,26 @@
  *
  * The mainPage value must match a key in the PAGES object exactly.
  */
-import Dashboard from './pages/Dashboard';
-import Campaigns from './pages/Campaigns';
-import CampaignDetail from './pages/CampaignDetail';
-import ProspectDetail from './pages/ProspectDetail';
-import Pipeline from './pages/Pipeline';
-import LeadDetail from './pages/LeadDetail';
-import Assistant from './pages/Assistant';
 import Admin from './pages/Admin';
+import Assistant from './pages/Assistant';
+import CampaignDetail from './pages/CampaignDetail';
+import Campaigns from './pages/Campaigns';
+import Dashboard from './pages/Dashboard';
+import LeadDetail from './pages/LeadDetail';
+import Pipeline from './pages/Pipeline';
+import ProspectDetail from './pages/ProspectDetail';
 import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
-    "Dashboard": Dashboard,
-    "Campaigns": Campaigns,
-    "CampaignDetail": CampaignDetail,
-    "ProspectDetail": ProspectDetail,
-    "Pipeline": Pipeline,
-    "LeadDetail": LeadDetail,
-    "Assistant": Assistant,
     "Admin": Admin,
+    "Assistant": Assistant,
+    "CampaignDetail": CampaignDetail,
+    "Campaigns": Campaigns,
+    "Dashboard": Dashboard,
+    "LeadDetail": LeadDetail,
+    "Pipeline": Pipeline,
+    "ProspectDetail": ProspectDetail,
 }
 
 export const pagesConfig = {
