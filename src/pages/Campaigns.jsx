@@ -79,6 +79,13 @@ export default function Campaigns() {
     await loadCampaigns();
   };
 
+  const handleDelete = async () => {
+    if (!deleteDialog) return;
+    await base44.functions.invoke("deleteCampaign", { campaignId: deleteDialog.campaignId, deleteProspects: true });
+    setDeleteDialog(null);
+    await loadCampaigns();
+  };
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
