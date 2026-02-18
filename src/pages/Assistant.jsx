@@ -163,7 +163,7 @@ export default function Assistant() {
             </div>
           ) : (
             filteredMessages.map((msg, i) => (
-              <MessageBubble key={i} message={msg} />
+              <MessageBubble key={i} message={msg} leadId={contextLeadId} prospectId={contextProspectId} user={user} />
             ))
           )}
           {isSending && (
