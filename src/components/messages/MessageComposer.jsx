@@ -106,14 +106,23 @@ export default function MessageComposer({ message: initialMessage, onUpdated }) 
       toast.warning("Copiez d'abord le message avant de le marquer comme envoyé.");
       return;
     }
+    if (!window.confirm("Confirmer que ce message a bien été envoyé manuellement ?")) return;
     setIsMarkingSent(true);
-    await base44.functions.invoke("markMessageSent", {
+    // Determine the final sent content
+    const finalBody = hasEdited ? editedBody : generatedContent;
+    const finalSubject = hasEdited ? editedSubject : generatedSubject;
+    const res = await base44.functions.invoke("markMessageSent", {
       messageId: msg.id,
       leadId: msg.leadId,
       channel: msg.channel,
+      subject: finalSubject,
+      body: finalBody,
+      editedSubject: editedSubject || "",
+      editedBody: editedBody || "",
     });
     setMsg(m => ({ ...m, status: "SENT" }));
-    toast.success("Message marqué comme envoyé ✓");
+    const dueDate = res?.data?.nextActionDueDateFormatted;
+    toast.success(`Message envoyé ✅ — Relance planifiée${dueDate ? ` le ${dueDate}` : ""}`);
     setIsMarkingSent(false);
     onUpdated?.();
   };
