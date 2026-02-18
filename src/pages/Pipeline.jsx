@@ -31,16 +31,22 @@ export default function Pipeline() {
 
   const loadLeads = async () => {
     const f = user.role === "admin" ? {} : { ownerUserId: user.email };
-    const data = await base44.entities.Lead.filter(f, "-updated_date", 200);
+    const [data, msgs] = await Promise.all([
+      base44.entities.Lead.filter(f, "-updated_date", 200),
+      base44.entities.Message.filter(user.role === "admin" ? {} : { ownerUserId: user.email }, "-created_date", 500),
+    ]);
     setLeads(data);
-    // Load draft messages for all leads
-    const msgFilter = user.role === "admin" ? {} : { ownerUserId: user.email };
-    const msgs = await base44.entities.Message.filter(msgFilter, "-created_date", 500);
+    // Group messages by lead: track drafts and recent sent
     const byLead = {};
     msgs.forEach(m => {
-      if (m.leadId && (m.status === "DRAFT" || m.status === "COPIED")) {
-        if (!byLead[m.leadId]) byLead[m.leadId] = [];
-        byLead[m.leadId].push(m);
+      if (!m.leadId) return;
+      if (!byLead[m.leadId]) byLead[m.leadId] = { drafts: [], lastSent: null };
+      if (m.status === "DRAFT" || m.status === "COPIED") {
+        byLead[m.leadId].drafts.push(m);
+      } else if (m.status === "SENT") {
+        if (!byLead[m.leadId].lastSent || new Date(m.sentAt) > new Date(byLead[m.leadId].lastSent.sentAt)) {
+          byLead[m.leadId].lastSent = m;
+        }
       }
     });
     setDraftsByLead(byLead);

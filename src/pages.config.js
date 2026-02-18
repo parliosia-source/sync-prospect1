@@ -53,8 +53,8 @@ import CampaignDetail from './pages/CampaignDetail';
 import Campaigns from './pages/Campaigns';
 import Dashboard from './pages/Dashboard';
 import LeadDetail from './pages/LeadDetail';
-import Pipeline from './pages/Pipeline';
 import ProspectDetail from './pages/ProspectDetail';
+import Pipeline from './pages/Pipeline';
 import __Layout from './Layout.jsx';
 
 
@@ -65,8 +65,8 @@ export const PAGES = {
     "Campaigns": Campaigns,
     "Dashboard": Dashboard,
     "LeadDetail": LeadDetail,
-    "Pipeline": Pipeline,
     "ProspectDetail": ProspectDetail,
+    "Pipeline": Pipeline,
 }
 
 export const pagesConfig = {
