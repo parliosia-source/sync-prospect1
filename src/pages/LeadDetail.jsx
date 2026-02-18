@@ -284,7 +284,7 @@ export default function LeadDetail() {
       {messages.filter(m => m.status === "SENT").length > 0 && (
         <div className="bg-white rounded-xl border shadow-sm p-4">
           <h3 className="font-semibold text-sm text-slate-800 mb-3 flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-slate-500" /> Historique des envois
+            <Send className="w-4 h-4 text-green-500" /> Historique des envois ({messages.filter(m => m.status === "SENT").length})
           </h3>
           <div className="space-y-3">
             {messages.filter(m => m.status === "SENT").map(m => (
