@@ -65,30 +65,29 @@ export default function ProspectDetail() {
 
   const handleGenerate = async () => {
     setIsGenerating(true);
-    setGeneratedMsg(null);
     const res = await base44.functions.invoke("generateMessage", {
       prospectId,
       channel: msgChannel,
       templateType: msgType,
       contactId: selectedContactId || undefined,
     });
-    setGeneratedMsg(res?.data);
+    if (res?.data?.body) {
+      await base44.entities.Message.create({
+        prospectId,
+        ownerUserId: user?.email,
+        channel: msgChannel,
+        subject: res.data.subject || "",
+        body: res.data.body,
+        generatedBody: res.data.generatedBody || res.data.body,
+        generatedSubject: res.data.generatedSubject || res.data.subject || "",
+        status: "DRAFT",
+        activeVersion: "GENERATED",
+        generatedByAI: true,
+      });
+      await loadData();
+      toast.success("Message généré et enregistré en brouillon");
+    }
     setIsGenerating(false);
-  };
-
-  const handleSaveDraft = async () => {
-    if (!generatedMsg) return;
-    setIsSaving(true);
-    await base44.entities.Message.create({
-      prospectId,
-      ownerUserId: user?.email,
-      channel: msgChannel,
-      subject: generatedMsg.subject || "",
-      body: generatedMsg.body,
-      status: "DRAFT",
-      generatedByAI: true,
-    });
-    setIsSaving(false);
   };
 
   if (!prospect) return (
