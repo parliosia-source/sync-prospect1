@@ -155,22 +155,22 @@ export default function Assistant() {
           {!activeConvId ? (
             <div className="flex flex-col items-center justify-center h-full text-center">
               <Bot className="w-12 h-12 text-slate-200 mb-3" />
-              <p className="text-slate-500 font-medium">Assistant de prospection SYNC</p>
+              <p className="text-slate-500 font-medium">Assistant SYNC — avec accès Internet</p>
               <p className="text-sm text-slate-400 mt-1 max-w-sm">
-                Posez des questions sur vos prospects, trouvez des événements B2B à cibler, obtenez des scripts ou angles d'approche. Accès Internet activé.
+                Posez n'importe quelle question. Spécialisé prospection B2B événementielle — trouve des cibles, rédige des messages, recherche des événements en temps réel.
               </p>
               <div className="mt-4 grid grid-cols-1 gap-2 w-full max-w-sm">
                 {[
-                  "Trouve des congrès et galas à Montréal en 2026",
-                  "Rédige un message LinkedIn pour une association professionnelle",
-                  "Quels événements corporatifs sont prévus dans le secteur finance QC?",
+                  "Quels événements B2B à Montréal dans les 90 prochains jours ?",
+                  "Trouve des entreprises qui annoncent une AGA au Québec",
+                  "Congrès et galas secteur finance Québec 2026",
                 ].map(s => (
                   <button
                     key={s}
                     onClick={() => handleSend(s)}
                     className="text-left text-xs px-3 py-2 rounded-lg border bg-white hover:bg-blue-50 hover:border-blue-300 text-slate-600 transition-colors"
                   >
-                    {s}
+                    🔍 {s}
                   </button>
                 ))}
               </div>
