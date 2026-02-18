@@ -157,8 +157,23 @@ export default function Assistant() {
               <Bot className="w-12 h-12 text-slate-200 mb-3" />
               <p className="text-slate-500 font-medium">Assistant de prospection SYNC</p>
               <p className="text-sm text-slate-400 mt-1 max-w-sm">
-                Posez des questions sur vos prospects, obtenez des angles d'approche, scripts de prospection ou aide pour gérer les objections.
+                Posez des questions sur vos prospects, trouvez des événements B2B à cibler, obtenez des scripts ou angles d'approche. Accès Internet activé.
               </p>
+              <div className="mt-4 grid grid-cols-1 gap-2 w-full max-w-sm">
+                {[
+                  "Trouve des congrès et galas à Montréal en 2026",
+                  "Rédige un message LinkedIn pour une association professionnelle",
+                  "Quels événements corporatifs sont prévus dans le secteur finance QC?",
+                ].map(s => (
+                  <button
+                    key={s}
+                    onClick={() => handleSend(s)}
+                    className="text-left text-xs px-3 py-2 rounded-lg border bg-white hover:bg-blue-50 hover:border-blue-300 text-slate-600 transition-colors"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
               <Button onClick={createNewConversation} className="mt-4 bg-blue-600 hover:bg-blue-700 gap-2">
                 <Plus className="w-4 h-4" /> Démarrer une conversation
               </Button>
