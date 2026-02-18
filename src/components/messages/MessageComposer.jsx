@@ -246,17 +246,21 @@ export default function MessageComposer({ message: initialMessage, onUpdated }) 
             </Button>
           )}
           {msg.leadId && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleMarkSent}
-              disabled={isMarkingSent || msg.status === "SENT"}
-              title={msg.status !== "COPIED" ? "Copiez d'abord le message" : ""}
-              className={`gap-1.5 ml-auto ${msg.status === "SENT" ? "text-green-600 border-green-200" : msg.status !== "COPIED" ? "opacity-50" : ""}`}
-            >
-              {isMarkingSent ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : msg.status === "SENT" ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
-              {msg.status === "SENT" ? "Envoyé" : "Marquer envoyé"}
-            </Button>
+            msg.status === "SENT" ? (
+              <div className="ml-auto flex items-center gap-1.5 text-xs text-green-600 font-medium px-2">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Envoyé
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                onClick={handleMarkSent}
+                disabled={isMarkingSent}
+                className="gap-1.5 ml-auto bg-green-600 hover:bg-green-700 text-white"
+              >
+                {isMarkingSent ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                Message envoyé ✅
+              </Button>
+            )
           )}
         </div>
 
