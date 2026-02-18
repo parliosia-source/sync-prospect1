@@ -6,45 +6,62 @@ Deno.serve(async (req) => {
   const user = await base44.auth.me();
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { messageId, leadId, channel } = await req.json();
+  const { messageId, leadId, channel, subject, body, editedSubject, editedBody } = await req.json();
   if (!leadId) return Response.json({ error: "leadId requis" }, { status: 400 });
 
   const leads = await base44.entities.Lead.filter({ id: leadId });
   const lead = leads[0];
   if (!lead) return Response.json({ error: "Lead introuvable" }, { status: 404 });
-  if (lead.ownerUserId !== user.email && user.role !== "admin") return Response.json({ error: "Forbidden" }, { status: 403 });
+  if (lead.ownerUserId !== user.email && user.role !== "admin") {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const now = new Date();
   const messageCount = (lead.messageCount || 0) + 1;
 
-  // Determine next action: J+7 after first send, J+14 after subsequent
+  // J+7 after first message, J+14 after subsequent ones
   const daysToNext = messageCount === 1 ? 7 : 14;
   const nextActionType = messageCount === 1 ? "FOLLOW_UP_J7" : "FOLLOW_UP_J14";
   const nextActionDueAt = addDays(now, daysToNext).toISOString();
 
-  // Cancel any existing active nextAction, create new one
+  // Update lead
+  const statusesToNotDowngrade = ["REPLIED", "MEETING", "CLOSED_WON", "CLOSED_LOST"];
+  const newLeadStatus = statusesToNotDowngrade.includes(lead.status) ? lead.status : "CONTACTED";
+
   await base44.entities.Lead.update(leadId, {
-    status: lead.status === "NEW" ? "CONTACTED" : lead.status,
+    status: newLeadStatus,
     messageCount,
     lastContactedAt: now.toISOString(),
     nextActionType,
     nextActionDueAt,
     nextActionStatus: "ACTIVE",
+    nextActionNote: `Relance suite à envoi ${channel || "message"} du ${now.toLocaleDateString("fr-CA")}`,
   });
 
-  // Mark message as SENT
+  // Mark message SENT with final content
   if (messageId) {
-    await base44.entities.Message.update(messageId, { status: "SENT", sentAt: now.toISOString() });
+    const msgUpdate = {
+      status: "SENT",
+      sentAt: now.toISOString(),
+      activeVersion: (editedBody || body) ? "EDITED" : "GENERATED",
+    };
+    if (editedSubject !== undefined) msgUpdate.editedSubject = editedSubject;
+    if (editedBody !== undefined) msgUpdate.editedBody = editedBody;
+    // Also update body/subject to final version for easy read
+    if (body) msgUpdate.body = body;
+    if (subject) msgUpdate.subject = subject;
+    await base44.entities.Message.update(messageId, msgUpdate);
   }
 
+  // Log activity
   await base44.entities.ActivityLog.create({
     ownerUserId: user.email,
-    actionType: "MARK_MESSAGE_SENT",
+    actionType: "MESSAGE_SENT_CONFIRMED",
     entityType: "Lead",
     entityId: leadId,
-    payload: { messageId, channel, messageCount, nextActionDueAt },
+    payload: { messageId, channel, messageCount, nextActionDueAt, nextActionType },
     status: "SUCCESS",
   });
 
-  return Response.json({ success: true, nextActionDueAt, nextActionType });
+  return Response.json({ success: true, nextActionDueAt, nextActionType, messageCount });
 });
