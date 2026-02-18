@@ -36,12 +36,14 @@ export default function ProspectDetail() {
   }, [prospectId]);
 
   const loadData = async () => {
-    const [prsp, ctcts] = await Promise.all([
+    const [prsp, ctcts, msgs] = await Promise.all([
       base44.entities.Prospect.filter({ id: prospectId }).then(r => r[0]),
       base44.entities.Contact.filter({ prospectId }),
+      base44.entities.Message.filter({ prospectId }, "-created_date", 10),
     ]);
     setProspect(prsp);
     setContacts(ctcts);
+    setDraftMessages(msgs.filter(m => m.status === "DRAFT" || m.status === "COPIED"));
     if (ctcts.length > 0) setSelectedContactId(ctcts[0].id);
   };
 
