@@ -21,15 +21,15 @@ async function callOpenAI(prompt) {
   return JSON.parse(data.choices[0].message.content);
 }
 
-async function braveSearch(query, count = 10) {
-  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}&extra_snippets=true&country=ca&search_lang=fr`;
+async function braveSearch(query, count = 10, offset = 0) {
+  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}&offset=${offset}&extra_snippets=true&country=ca&search_lang=fr`;
   const res = await fetch(url, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY } });
   const data = await res.json();
   return data.web?.results || [];
 }
 
-async function serpSearch(query) {
-  const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(query)}&location=Canada&hl=fr&gl=ca&num=10&api_key=${SERPAPI_KEY}`;
+async function serpSearch(query, start = 0) {
+  const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(query)}&location=Canada&hl=fr&gl=ca&num=10&start=${start}&api_key=${SERPAPI_KEY}`;
   const res = await fetch(url);
   const data = await res.json();
   return data.organic_results || [];
@@ -45,24 +45,39 @@ function extractDomain(url) {
 function buildQueryVariants(campaign, loc) {
   const sector = campaign.industrySectors?.slice(0, 2).join(" ") || "";
   const kws = campaign.keywords?.slice(0, 3).join(" ") || "";
-  const eventTypes = [
-    ["conférence annuelle", "congrès", "AGA assemblée annuelle"],
-    ["gala cérémonie", "colloque", "formation interne"],
-    ["townhall réunion annuelle", "symposium", "sommet"],
+  const exclude = '-"agence événementielle" -"event planner" -"planificateur d\'événements" -"organisation d\'événements"';
+
+  const queries = [
+    // Event-type driven (core ICP)
+    `"conférence annuelle" organisateur ${sector} ${loc} ${exclude}`.trim(),
+    `"AGA" OR "assemblée générale annuelle" entreprise ${sector} ${loc} ${exclude}`.trim(),
+    `"congrès annuel" association ${sector} ${loc} ${exclude}`.trim(),
+    `"gala" OR "cérémonie" entreprise ${sector} ${loc} ${exclude}`.trim(),
+    `"formation interne" OR "townhall" organisation ${sector} ${loc} ${exclude}`.trim(),
+    `"colloque" OR "symposium" ${sector} ${loc} ${exclude}`.trim(),
+    `"journée d'entreprise" OR "journée employés" ${loc} ${sector} ${exclude}`.trim(),
+    `"webinaire" OR "webdiffusion" ${sector} ${loc} entreprise ${exclude}`.trim(),
+
+    // Sector-targeted
+    `association professionnelle congrès ${loc} ${sector}`.trim(),
+    `ordre professionnel assemblée annuelle ${loc} ${sector}`.trim(),
+    `chambre de commerce événement corporatif ${loc} membres`.trim(),
+    `grande entreprise événement annuel employés ${loc} ${sector}`.trim(),
+
+    // Keyword-boosted (if user added keywords)
+    ...(kws ? [
+      `"${kws}" événement corporatif ${loc} ${sector} ${exclude}`.trim(),
+      `${kws} conférence réunion annuelle ${loc} ${exclude}`.trim(),
+    ] : []),
+
+    // Broad fallbacks
+    `entreprise ${loc} événements corporatifs annuels ${sector}`.trim(),
+    `organisations ${loc} congrès gala AGA ${sector}`.trim(),
+    `site:.ca entreprise événement corporatif ${loc} ${sector}`.trim(),
+    `filetype:pdf programme conférence annuelle ${loc} ${sector}`.trim(),
   ];
-  const queries = [];
-  for (const evGroup of eventTypes) {
-    for (const ev of evGroup) {
-      queries.push(
-        `"${ev}" organisateur ${sector} ${loc} ${kws} -"agence événementielle" -"event planner"`.trim()
-      );
-    }
-  }
-  // Additional broader queries to boost count
-  queries.push(`entreprise organisation "${loc}" événements corporatifs annuel ${sector}`);
-  queries.push(`association ordre professionnel "${loc}" congrès AGA ${sector}`);
-  queries.push(`site:*.ca OR site:*.org événement corporatif ${loc} ${sector} ${kws}`);
-  return queries;
+
+  return queries.filter(q => q.length > 10);
 }
 
 async function normalizeResult(r) {
@@ -79,7 +94,7 @@ Snippet: ${r.snippet || ""} ${(r.extra_snippets || []).slice(0, 2).join(" ")}
 
 Réponds en JSON: { "companyName": string|null, "website": string|null, "domain": string|null, "industry": string|null, "location": {"city":string,"region":string,"country":string}, "entityType": "COMPANY|ASSOCIATION|PROFESSIONAL_ORG|GOV|OTHER", "isValid": boolean, "reason": string }
 
-isValid = true seulement si: 1) c'est clairement une entreprise/org qui organise ses propres événements, 2) companyName ET website sont présents, 3) ce n'est PAS une agence event planner ou organisateur professionnel.`
+isValid = true seulement si: 1) c'est clairement une entreprise/org qui organise ses propres événements, 2) companyName ET website sont présents, 3) ce n'est PAS une agence event planner, organisateur professionnel, ou répertoire de fournisseurs.`
   );
   return { normalized, domain };
 }
@@ -107,7 +122,7 @@ Deno.serve(async (req) => {
   const existingDomains = new Set(existing.map(p => p.domain).filter(Boolean));
   let created = existing.length;
 
-  // Include KB entities as additional dedup + query enrichment
+  // Also dedup against KB
   let kbDomains = new Set();
   try {
     const kbEntities = await base44.entities.KBEntity.filter({}, "-created_date", 200);
@@ -117,50 +132,68 @@ Deno.serve(async (req) => {
   const queries = buildQueryVariants(campaign, loc);
   let queryIndex = 0;
   let skippedDupe = 0;
+  let totalQueriesRun = 0;
 
   while (created < target && queryIndex < queries.length) {
-    const pct = 10 + Math.round((queryIndex / queries.length) * 70);
-    await base44.entities.Campaign.update(campaignId, { progressPct: pct });
+    const pct = 10 + Math.round((queryIndex / queries.length) * 75);
+    await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
 
-    let results = [];
-    try { results = await braveSearch(queries[queryIndex], 10); } catch (_) {}
-    if (results.length === 0 && SERPAPI_KEY) {
-      try { results = await serpSearch(queries[queryIndex]); } catch (_) {}
-    }
+    // Try up to 3 pages per query (0, 10, 20) to maximize results
+    for (let page = 0; page < 3 && created < target; page++) {
+      let results = [];
+      try {
+        results = await braveSearch(queries[queryIndex], 10, page * 10);
+      } catch (_) {}
+      if (results.length === 0 && SERPAPI_KEY) {
+        try {
+          results = await serpSearch(queries[queryIndex], page * 10);
+        } catch (_) {}
+      }
+      if (results.length === 0) break; // No more results for this query
 
-    // Normalize results in parallel (max 5 at a time)
-    const batch = results.slice(0, 10);
-    const normalizations = await Promise.allSettled(batch.map(r => normalizeResult(r).catch(() => null)));
+      totalQueriesRun++;
 
-    for (let i = 0; i < normalizations.length; i++) {
-      if (created >= target) break;
-      const result = normalizations[i];
-      if (result.status !== "fulfilled" || !result.value) continue;
-      const { normalized, domain } = result.value;
-      if (!normalized?.isValid || !normalized?.companyName || !normalized?.website) continue;
-      const cleanDomain = extractDomain(normalized.website) || domain;
-      if (!cleanDomain) continue;
-      if (existingDomains.has(cleanDomain) || kbDomains.has(cleanDomain)) {
-        skippedDupe++;
-        continue;
+      // Normalize in parallel batches of 5
+      const batches = [];
+      for (let i = 0; i < results.length; i += 5) {
+        batches.push(results.slice(i, i + 5));
       }
 
-      await base44.entities.Prospect.create({
-        campaignId,
-        ownerUserId: campaign.ownerUserId,
-        companyName: normalized.companyName,
-        website: normalized.website,
-        domain: cleanDomain,
-        industry: normalized.industry,
-        location: normalized.location,
-        entityType: normalized.entityType,
-        status: "NOUVEAU",
-        serpSnippet: results[i]?.snippet || "",
-        sourceUrl: results[i]?.url || results[i]?.link || "",
-      });
+      for (const batch of batches) {
+        if (created >= target) break;
+        const normalizations = await Promise.allSettled(batch.map(r => normalizeResult(r).catch(() => null)));
 
-      existingDomains.add(cleanDomain);
-      created++;
+        for (let i = 0; i < normalizations.length; i++) {
+          if (created >= target) break;
+          const result = normalizations[i];
+          if (result.status !== "fulfilled" || !result.value) continue;
+          const { normalized, domain } = result.value;
+          if (!normalized?.isValid || !normalized?.companyName || !normalized?.website) continue;
+          const cleanDomain = extractDomain(normalized.website) || domain;
+          if (!cleanDomain) continue;
+          if (existingDomains.has(cleanDomain) || kbDomains.has(cleanDomain)) {
+            skippedDupe++;
+            continue;
+          }
+
+          await base44.entities.Prospect.create({
+            campaignId,
+            ownerUserId: campaign.ownerUserId,
+            companyName: normalized.companyName,
+            website: normalized.website,
+            domain: cleanDomain,
+            industry: normalized.industry,
+            location: normalized.location,
+            entityType: normalized.entityType,
+            status: "NOUVEAU",
+            serpSnippet: batch[i]?.snippet || "",
+            sourceUrl: batch[i]?.url || batch[i]?.link || "",
+          });
+
+          existingDomains.add(cleanDomain);
+          created++;
+        }
+      }
     }
 
     queryIndex++;
@@ -170,7 +203,7 @@ Deno.serve(async (req) => {
     status: "COMPLETED",
     progressPct: 100,
     countProspects: created,
-    toolUsage: { brave: queryIndex, openai: created, skippedDuplicates: skippedDupe },
+    toolUsage: { queries: totalQueriesRun, openai: created, skippedDuplicates: skippedDupe },
   });
 
   await base44.entities.ActivityLog.create({
@@ -178,7 +211,7 @@ Deno.serve(async (req) => {
     actionType: "RUN_PROSPECT_SEARCH",
     entityType: "Campaign",
     entityId: campaignId,
-    payload: { created, target, skippedDuplicates: skippedDupe, queriesRun: queryIndex },
+    payload: { created, target, skippedDuplicates: skippedDupe, queriesRun: totalQueriesRun },
     status: "SUCCESS",
   });
 
