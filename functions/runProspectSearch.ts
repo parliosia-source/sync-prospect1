@@ -142,6 +142,18 @@ Deno.serve(async (req) => {
   const loc = campaign.locationQuery || "Montréal";
   const target = campaign.targetCount || 50;
 
+  // Fetch AppSettings for budget controls
+  let appSettings = {};
+  try {
+    const settings = await base44.entities.AppSettings.filter({ settingsId: "global" });
+    if (settings.length > 0) appSettings = settings[0];
+  } catch (_) {}
+  
+  const BRAVE_MAX_REQUESTS = appSettings.braveMaxRequestsPerCampaign || 250;
+  const BRAVE_MAX_PAGES = appSettings.braveMaxPagesPerQuery || 5;
+  const BRAVE_MIN_REMAINING = appSettings.braveMinRemainingBeforePause || 2;
+  const ENABLE_KB_TOPUP = appSettings.enableKbTopUp !== false;
+
   // Collect existing domains for dedup
   const existing = await base44.entities.Prospect.filter({ campaignId });
   const existingDomains = new Set(existing.map(p => p.domain).filter(Boolean));
@@ -157,8 +169,12 @@ Deno.serve(async (req) => {
   let allQueries = buildQueryVariants(campaign, loc);
   let queryIndex = 0;
   let skippedDupe = 0;
+  let braveRequestsUsed = 0;
   let totalQueriesRun = 0;
   let rateLimitHit = false;
+  let budgetGuardTriggered = false;
+  let lastRateLimitRemaining = -1;
+  let lastRateLimitReset = -1;
   const queryLog = [];
 
   const runQuery = async (query, maxPagesOverride) => {
