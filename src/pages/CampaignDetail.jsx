@@ -59,7 +59,7 @@ export default function CampaignDetail() {
   const loadAll = async () => {
     const [camp, prsp] = await Promise.all([
       base44.entities.Campaign.filter({ id: campaignId }).then(r => r[0]),
-      base44.entities.Prospect.filter({ campaignId }, "-relevanceScore,-created_date", 200),
+      base44.entities.Prospect.filter({ campaignId }, "-created_date", 200),
     ]);
     setCampaign(camp);
     setProspects(prsp);
