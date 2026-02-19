@@ -341,6 +341,64 @@ Deno.serve(async (req) => {
     }
   }
 
+  // ─── Phase KB_TOPUP ───────────────────────────────────────────────────────
+  let kbTopupAdded = 0;
+  let kbTopupSkipped = 0;
+  const webStopReason = created >= target ? "TARGET_REACHED"
+    : budgetGuardTriggered ? "BUDGET_GUARD"
+    : rateLimitHit ? "RATE_LIMIT"
+    : queryIndex >= allQueries.length ? "QUERIES_EXHAUSTED"
+    : "ERROR";
+
+  if (ENABLE_KB_TOPUP && created < target && ["QUERIES_EXHAUSTED", "RATE_LIMIT", "BUDGET_GUARD"].includes(webStopReason)) {
+    await base44.entities.Campaign.update(campaignId, { progressPct: 90, countProspects: created });
+
+    // Build KB candidate set — filter loosely by campaign criteria
+    const locLower = loc.toLowerCase();
+    const sectors = (campaign.industrySectors || []).map(s => s.toLowerCase());
+
+    const kbCandidates = allKbEntities.filter(e => {
+      const domNorm = (e.domain || "").toLowerCase().replace(/^www\./, "");
+      // Skip already created prospects
+      if (existingDomains.has(domNorm)) return false;
+      if (!e.domain || !e.website) return false;
+      // Loose location match: if campaign has a location, prefer matching
+      if (locLower && e.hqLocation) {
+        const loc_ = e.hqLocation.toLowerCase();
+        if (!loc_.includes("canada") && !loc_.includes("ca") && !loc_.includes(locLower.split(",")[0].trim())) return false;
+      }
+      return true;
+    });
+
+    for (const kb of kbCandidates) {
+      if (created >= target) break;
+      const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
+      if (existingDomains.has(domNorm)) { kbTopupSkipped++; continue; }
+
+      const website = kb.website || `https://${kb.domain}`;
+      await base44.entities.Prospect.create({
+        campaignId,
+        ownerUserId: campaign.ownerUserId,
+        companyName: kb.name,
+        website,
+        domain: domNorm,
+        industry: kb.entityType || null,
+        location: kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
+        entityType: kb.entityType || "COMPANY",
+        status: "NOUVEAU",
+        sourceOrigin: "KB_TOPUP",
+        kbEntityId: kb.id,
+        serpSnippet: kb.notes || "",
+        sourceUrl: kb.source || "",
+      });
+
+      existingDomains.add(domNorm);
+      created++;
+      kbTopupAdded++;
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   // Determine stop reason
   let stopReason;
   if (created >= target) {
