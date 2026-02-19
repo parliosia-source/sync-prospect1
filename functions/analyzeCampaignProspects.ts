@@ -1,9 +1,53 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
-const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
-const HUNTER_KEY = Deno.env.get("HUNTER_API_KEY");
-const BRAVE_KEY = Deno.env.get("BRAVE_API_KEY");
+const OPENAI_KEY  = Deno.env.get("OPENAI_API_KEY");
+const HUNTER_KEY  = Deno.env.get("HUNTER_API_KEY");
+const BRAVE_KEY   = Deno.env.get("BRAVE_API_KEY");
 const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
+
+// ── Brave rate-limit helpers ──────────────────────────────────────────────────
+const braveRLState = { remaining: -1, reset: -1, count429: 0 };
+
+function parseBraveHeaders(res) {
+  const remaining = parseInt(res.headers.get("X-RateLimit-Remaining") || "-1", 10);
+  const reset     = parseInt(res.headers.get("X-RateLimit-Reset")     || "-1", 10);
+  if (remaining !== -1) braveRLState.remaining = remaining;
+  if (reset     !== -1) braveRLState.reset     = reset;
+}
+
+async function waitForBraveReset(minWaitMs = 1000) {
+  const waitMs = braveRLState.reset > 0
+    ? Math.max(braveRLState.reset * 1000, minWaitMs)
+    : minWaitMs;
+  await new Promise(r => setTimeout(r, waitMs));
+}
+
+async function kbFreshnessSnippet(domain, retries = 2) {
+  if (!BRAVE_KEY) return null;
+  if (braveRLState.remaining === 0 && braveRLState.reset > 0) await waitForBraveReset();
+
+  const query = `site:${domain} (événement OR conférence OR gala OR congrès OR AGA OR assemblée)`;
+  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=3&extra_snippets=true&country=ca`;
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch(url, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY } });
+      parseBraveHeaders(res);
+      if (res.status === 429) {
+        braveRLState.count429++;
+        if (attempt < retries - 1) { await waitForBraveReset(Math.pow(2, attempt) * 1000); continue; }
+        return null;
+      }
+      if (!res.ok) return null;
+      if (braveRLState.remaining === 0) await waitForBraveReset(1000);
+      const data = await res.json();
+      const results = data.web?.results || [];
+      const snippet = results.map(r => r.extra_snippets?.[0] || r.description || "").filter(Boolean).join(" ").slice(0, 500);
+      return snippet || null;
+    } catch (_) { return null; }
+  }
+  return null;
+}
 
 async function callOpenAI(messages) {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -23,8 +67,12 @@ async function hunterDomainSearch(domain, company) {
 
 async function braveSearch(query, count = 5) {
   if (!BRAVE_KEY) return [];
+  if (braveRLState.remaining === 0 && braveRLState.reset > 0) await waitForBraveReset();
   const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}`;
   const res = await fetch(url, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY } });
+  parseBraveHeaders(res);
+  if (res.status === 429) { braveRLState.count429++; return []; }
+  if (braveRLState.remaining === 0) await waitForBraveReset(1000);
   const data = await res.json();
   return data?.web?.results || [];
 }
@@ -53,13 +101,11 @@ async function findLinkedInUrl(firstName, lastName, company) {
 
   try {
     const pick = await callOpenAI([
-      { role: "system", content: "Tu sélectionnes le profil LinkedIn le plus probable pour une personne. Réponds en JSON strict." },
+      { role: "system", content: "Tu sélectionnes le profil LinkedIn le plus probable. Réponds en JSON strict." },
       {
         role: "user",
-        content: `Personne recherchée: ${firstName} ${lastName}, travaille chez ${company}.
-Candidats:
-${candidates.map((c, i) => `${i}: url=${c.url} title="${c.title}" snippet="${c.snippet}"`).join("\n")}
-
+        content: `Personne: ${firstName} ${lastName}, chez ${company}.
+Candidats: ${candidates.map((c, i) => `${i}: url=${c.url} title="${c.title}"`).join("\n")}
 Réponds: {"index": number_or_-1, "confidence": 0.0_to_1.0}`
       }
     ]);
@@ -70,27 +116,35 @@ Réponds: {"index": number_or_-1, "confidence": 0.0_to_1.0}`
   return null;
 }
 
-async function analyzeProspect(prospect, base44) {
-  // 1. AI analysis
+async function analyzeProspect(prospect, base44, freshnessEnabled) {
+  // KB freshness: only for KB_TOPUP prospects and within budget
+  let snippetToUse = prospect.serpSnippet || "";
+  let freshnessUsed = false;
+  if (prospect.sourceOrigin === "KB_TOPUP" && prospect.domain && freshnessEnabled) {
+    const liveSnippet = await kbFreshnessSnippet(prospect.domain);
+    if (liveSnippet) { snippetToUse = liveSnippet; freshnessUsed = true; }
+  }
+
+  // AI analysis
   const analysis = await callOpenAI([
     {
       role: "system",
       content: `Tu es un expert en prospection B2B pour SYNC Productions (partenaire audiovisuel à Montréal).
 SYNC offre: son, éclairage, captation, webdiffusion/hybride pour événements corporatifs.
-ICP: entreprises/organisations qui organisent leurs propres événements corporatifs (conférences, congrès, AGA, galas, formations internes, townhalls).
+ICP: entreprises/organisations qui organisent leurs propres événements corporatifs.
 Tu n'inventes pas de faits. Sortie JSON strict uniquement.`
     },
     {
       role: "user",
       content: `Analyse ce prospect pour SYNC Productions:
-
 Entreprise: ${prospect.companyName}
 Site: ${prospect.website}
 Domaine: ${prospect.domain}
 Industrie: ${prospect.industry || "inconnue"}
 Localisation: ${JSON.stringify(prospect.location || {})}
 Type: ${prospect.entityType || ""}
-Snippet: ${prospect.serpSnippet || ""}
+Snippet: ${snippetToUse}
+Source: ${prospect.sourceOrigin || "WEB"}
 
 Réponds en JSON:
 {
@@ -106,7 +160,7 @@ Réponds en JSON:
     }
   ]);
 
-  // 2. Hunter contacts (isolated — never crashes the prospect)
+  // Hunter contacts
   let hunterContacts = [];
   try {
     const hr = await hunterDomainSearch(prospect.domain, prospect.companyName);
@@ -115,13 +169,12 @@ Réponds en JSON:
     }
   } catch (_) {}
 
-  // 3. Create contacts + enrich LinkedIn
+  // Create contacts + enrich LinkedIn
   for (const hc of hunterContacts) {
     try {
       const existing = await base44.entities.Contact.filter({ prospectId: prospect.id, email: hc.value });
       let contactId = existing[0]?.id;
       const linkedinUrl = hc.linkedin || await findLinkedInUrl(hc.first_name, hc.last_name, prospect.companyName);
-
       if (!contactId) {
         await base44.entities.Contact.create({
           prospectId: prospect.id,
@@ -142,7 +195,7 @@ Réponds en JSON:
     } catch (_) {}
   }
 
-  // 4. Stub contacts from AI titles when Hunter finds nothing
+  // Stub contacts from AI titles
   if (hunterContacts.length === 0 && analysis.decisionMakerTitles?.length > 0) {
     const contactPageUrl = `https://www.${prospect.domain}/contact`;
     for (const title of analysis.decisionMakerTitles.slice(0, 2)) {
@@ -162,7 +215,7 @@ Réponds en JSON:
     }
   }
 
-  // 5. Update prospect with analysis results
+  // Update prospect
   await base44.entities.Prospect.update(prospect.id, {
     status: "ANALYSÉ",
     relevanceScore: analysis.relevanceScore,
@@ -177,7 +230,7 @@ Réponds en JSON:
     analysisErrorAt: null,
   });
 
-  return analysis;
+  return { analysis, freshnessUsed };
 }
 
 Deno.serve(async (req) => {
@@ -196,25 +249,25 @@ Deno.serve(async (req) => {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // Freshness budget: max 30 KB freshness checks per campaign run
+  const KB_FRESHNESS_MAX = 30;
+  let freshnessChecksDone = 0;
+
   const startedAt = Date.now();
   const mode = prospectIds && prospectIds.length > 0 ? "selection" : "all";
   const skipStatuses = ["ANALYSÉ", "QUALIFIÉ", "REJETÉ", "EXPORTÉ"];
 
-  // Immediately mark as RUNNING
   await base44.entities.Campaign.update(campaignId, {
     analysisStatus: "RUNNING",
     analysisLastHeartbeatAt: new Date().toISOString(),
     analysisProgressPct: 0,
   });
 
-  // Fetch and filter prospects to analyze
   const allProspects = await base44.entities.Prospect.filter({ campaignId }, "-created_date", 500);
   let prospects;
   if (mode === "selection") {
-    // Only the explicitly requested IDs, skip already-done ones
     prospects = allProspects.filter(p => prospectIds.includes(p.id) && !skipStatuses.includes(p.status));
   } else {
-    // All pending: NOUVEAU + previously failed
     prospects = allProspects.filter(p => p.status === "NOUVEAU" || p.status === "FAILED_ANALYSIS");
   }
 
@@ -232,10 +285,12 @@ Deno.serve(async (req) => {
   for (let i = 0; i < prospects.length; i += BATCH) {
     const batch = prospects.slice(i, i + BATCH);
 
-    // Process batch in parallel — each promise RETURNS a result, no shared mutable state
     const settled = await Promise.allSettled(batch.map(async (prospect) => {
       try {
-        await analyzeProspect(prospect, base44);
+        // Only allow freshness if within budget
+        const canUseFreshness = prospect.sourceOrigin === "KB_TOPUP" && freshnessChecksDone < KB_FRESHNESS_MAX;
+        const result = await analyzeProspect(prospect, base44, canUseFreshness);
+        if (result.freshnessUsed) freshnessChecksDone++;
         return { success: true };
       } catch (e) {
         const errMsg = (e.message || "Erreur inconnue").slice(0, 500);
@@ -251,13 +306,11 @@ Deno.serve(async (req) => {
       }
     }));
 
-    // Count from settled results — no race condition
     const batchAnalyzed = settled.filter(r => r.value?.success === true).length;
-    const batchFailed = settled.filter(r => r.value?.success === false).length;
+    const batchFailed   = settled.filter(r => r.value?.success === false).length;
     analyzed += batchAnalyzed;
-    failed += batchFailed;
+    failed   += batchFailed;
 
-    // Heartbeat after each batch (never write 100 until done)
     const pct = Math.min(Math.round(((i + batch.length) / total) * 100), 99);
     await base44.entities.Campaign.update(campaignId, {
       analysisLastHeartbeatAt: new Date().toISOString(),
@@ -265,13 +318,15 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Recalculate counts from DB (source of truth)
+  // Recalculate counts from DB
   const finalProspects = await base44.entities.Prospect.filter({ campaignId }, "-created_date", 500);
-  const countAnalyzed = finalProspects.filter(p => ["ANALYSÉ", "QUALIFIÉ", "REJETÉ", "EXPORTÉ"].includes(p.status)).length;
+  const countAnalyzed  = finalProspects.filter(p => ["ANALYSÉ", "QUALIFIÉ", "REJETÉ", "EXPORTÉ"].includes(p.status)).length;
   const countQualified = finalProspects.filter(p => p.status === "QUALIFIÉ").length;
-  const countRejected = finalProspects.filter(p => p.status === "REJETÉ").length;
-  const durationMs = Date.now() - startedAt;
+  const countRejected  = finalProspects.filter(p => p.status === "REJETÉ").length;
+  const durationMs     = Date.now() - startedAt;
 
+  // Merge freshness stats into existing toolUsage
+  const existingUsage = campaign.toolUsage || {};
   await base44.entities.Campaign.update(campaignId, {
     analysisStatus: "COMPLETED",
     analysisProgressPct: 100,
@@ -279,6 +334,14 @@ Deno.serve(async (req) => {
     countQualified,
     countRejected,
     analysisLastHeartbeatAt: new Date().toISOString(),
+    toolUsage: {
+      ...existingUsage,
+      freshnessChecksDone,
+      freshnessChecksMax: KB_FRESHNESS_MAX,
+      braveRateLimitRemaining: braveRLState.remaining,
+      braveRateLimitReset: braveRLState.reset,
+      brave429Count: (existingUsage.brave429Count || 0) + braveRLState.count429,
+    },
   });
 
   await base44.entities.ActivityLog.create({
@@ -286,10 +349,10 @@ Deno.serve(async (req) => {
     actionType: "ANALYZE_CAMPAIGN_PROSPECTS",
     entityType: "Campaign",
     entityId: campaignId,
-    payload: { analyzed, failed, total, durationMs, mode },
+    payload: { analyzed, failed, total, durationMs, mode, freshnessChecksDone },
     status: analyzed > 0 ? "SUCCESS" : "ERROR",
     errorMessage: failed > 0 ? `${failed}/${total} prospects ont échoué l'analyse` : null,
   });
 
-  return Response.json({ success: true, analyzed, failed, total, mode });
+  return Response.json({ success: true, analyzed, failed, total, mode, freshnessChecksDone });
 });
