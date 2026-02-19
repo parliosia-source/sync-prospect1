@@ -57,6 +57,13 @@ Deno.serve(async (req) => {
   if (!prospect) return Response.json({ error: "Prospect introuvable" }, { status: 404 });
   if (prospect.ownerUserId !== user.email && user.role !== "admin") return Response.json({ error: "Forbidden" }, { status: 403 });
 
+  // 0. KB_TOPUP freshness: fetch a live snippet if prospect comes from KB
+  let freshnessSnippet = prospect.serpSnippet || "";
+  if (prospect.sourceOrigin === "KB_TOPUP" && prospect.domain) {
+    const liveSnippet = await kbFreshnessSnippet(prospect.domain);
+    if (liveSnippet) freshnessSnippet = liveSnippet;
+  }
+
   // 1. Analyse IA du prospect
   const analysis = await callOpenAI([
     {
