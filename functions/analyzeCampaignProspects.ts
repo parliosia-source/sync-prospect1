@@ -5,7 +5,7 @@ const HUNTER_KEY  = Deno.env.get("HUNTER_API_KEY");
 const BRAVE_KEY   = Deno.env.get("BRAVE_API_KEY");
 const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
 
-// ── Brave rate-limit helpers ──────────────────────────────────────────────────
+// ── Brave helpers ──────────────────────────────────────────────────────────────
 const braveRLState = { remaining: -1, reset: -1, count429: 0 };
 
 function parseBraveHeaders(res) {
@@ -16,37 +16,42 @@ function parseBraveHeaders(res) {
 }
 
 async function waitForBraveReset(minWaitMs = 1000) {
-  const waitMs = braveRLState.reset > 0
-    ? Math.max(braveRLState.reset * 1000, minWaitMs)
-    : minWaitMs;
+  const waitMs = braveRLState.reset > 0 ? Math.max(braveRLState.reset * 1000, minWaitMs) : minWaitMs;
   await new Promise(r => setTimeout(r, waitMs));
 }
 
-async function kbFreshnessSnippet(domain, retries = 2) {
-  if (!BRAVE_KEY) return null;
+async function braveQuery(query, count = 5, retries = 2) {
+  if (!BRAVE_KEY) return [];
   if (braveRLState.remaining === 0 && braveRLState.reset > 0) await waitForBraveReset();
-
-  const query = `site:${domain} (événement OR conférence OR gala OR congrès OR AGA OR assemblée)`;
-  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=3&extra_snippets=true&country=ca`;
-
+  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}&extra_snippets=true&country=ca`;
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const res = await fetch(url, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY } });
       parseBraveHeaders(res);
-      if (res.status === 429) {
-        braveRLState.count429++;
-        if (attempt < retries - 1) { await waitForBraveReset(Math.pow(2, attempt) * 1000); continue; }
-        return null;
-      }
-      if (!res.ok) return null;
+      if (res.status === 429) { braveRLState.count429++; if (attempt < retries - 1) { await waitForBraveReset(Math.pow(2, attempt) * 1000); continue; } return []; }
+      if (!res.ok) return [];
       if (braveRLState.remaining === 0) await waitForBraveReset(1000);
       const data = await res.json();
-      const results = data.web?.results || [];
-      const snippet = results.map(r => r.extra_snippets?.[0] || r.description || "").filter(Boolean).join(" ").slice(0, 500);
-      return snippet || null;
-    } catch (_) { return null; }
+      return data.web?.results || [];
+    } catch (_) { return []; }
   }
-  return null;
+  return [];
+}
+
+async function serpQuery(query, count = 5) {
+  if (!SERPAPI_KEY) return [];
+  try {
+    const url = `https://serpapi.com/search.json?q=${encodeURIComponent(query)}&num=${count}&api_key=${SERPAPI_KEY}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return data.organic_results || [];
+  } catch (_) { return []; }
+}
+
+async function kbFreshnessSnippet(domain) {
+  const query = `site:${domain} (événement OR conférence OR gala OR congrès OR assemblée)`;
+  const results = await braveQuery(query, 3);
+  return results.map(r => r.extra_snippets?.[0] || r.description || "").filter(Boolean).join(" ").slice(0, 500) || null;
 }
 
 async function callOpenAI(messages) {
@@ -65,78 +70,66 @@ async function hunterDomainSearch(domain, company) {
   return res.json();
 }
 
-async function braveSearch(query, count = 5) {
-  if (!BRAVE_KEY) return [];
-  if (braveRLState.remaining === 0 && braveRLState.reset > 0) await waitForBraveReset();
-  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}`;
-  const res = await fetch(url, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY } });
-  parseBraveHeaders(res);
-  if (res.status === 429) { braveRLState.count429++; return []; }
-  if (braveRLState.remaining === 0) await waitForBraveReset(1000);
-  const data = await res.json();
-  return data?.web?.results || [];
-}
-
-async function serpSearch(query, count = 5) {
-  if (!SERPAPI_KEY) return [];
-  const url = `https://serpapi.com/search.json?q=${encodeURIComponent(query)}&num=${count}&api_key=${SERPAPI_KEY}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  return data?.organic_results || [];
-}
-
-async function findLinkedInUrl(firstName, lastName, company) {
-  if (!firstName || !lastName) return null;
-  const query = `site:linkedin.com/in "${firstName} ${lastName}" "${company}"`;
-  let results = await braveSearch(query, 5);
-  if (results.length === 0) results = await serpSearch(query, 5);
-  if (results.length === 0) return null;
-
-  const candidates = results
-    .filter(r => (r.url || r.link || "").includes("linkedin.com/in/"))
-    .slice(0, 3)
-    .map(r => ({ url: r.url || r.link, title: r.title || "", snippet: r.description || r.snippet || "" }));
-
-  if (candidates.length === 0) return null;
-
-  try {
-    const pick = await callOpenAI([
-      { role: "system", content: "Tu sélectionnes le profil LinkedIn le plus probable. Réponds en JSON strict." },
-      {
-        role: "user",
-        content: `Personne: ${firstName} ${lastName}, chez ${company}.
-Candidats: ${candidates.map((c, i) => `${i}: url=${c.url} title="${c.title}"`).join("\n")}
-Réponds: {"index": number_or_-1, "confidence": 0.0_to_1.0}`
-      }
-    ]);
-    if (pick.confidence >= 0.6 && pick.index >= 0 && candidates[pick.index]) {
-      return candidates[pick.index].url;
+// ── Decision Maker Discovery ───────────────────────────────────────────────────
+async function findDecisionMakers(companyName, domain) {
+  const candidates = [];
+  const q1 = `site:linkedin.com/in ("${companyName}" OR "${domain}") (Directeur OR VP OR "Chef de" OR Responsable OR "Head of") (marketing OR communication OR événement OR event)`;
+  let results = await braveQuery(q1, 8);
+  if (results.length < 2) {
+    const q2 = `"${companyName}" (Directeur marketing OR "Directeur communications" OR "Responsable événements") LinkedIn`;
+    const r2 = await braveQuery(q2, 5);
+    if (r2.length === 0) { const r3 = await serpQuery(q1, 5); results = [...results, ...r3]; }
+    else results = [...results, ...r2];
+  }
+  for (const r of results) {
+    const url = r.url || r.link || "";
+    if (!url.includes("linkedin.com/in/")) continue;
+    const title = r.title || "";
+    const snippet = r.description || r.snippet || "";
+    const nameMatch = title.match(/^([A-ZÀ-ÿ][a-zà-ÿ'-]+(?: [A-ZÀ-ÿ][a-zà-ÿ'-]+)+)/);
+    const fullName = nameMatch ? nameMatch[1] : null;
+    const roleMatch = title.match(/[-–|]\s*([^|–\-]{5,60})(?:\s*[-–|]|$)/);
+    const role = roleMatch ? roleMatch[1].trim() : snippet.slice(0, 80);
+    if (url && !candidates.find(c => c.linkedinUrl === url)) {
+      candidates.push({ fullName, title: role, linkedinUrl: url, sourceUrl: url, confidence: fullName ? 0.8 : 0.5 });
     }
-  } catch (_) {}
-  return null;
+    if (candidates.length >= 5) break;
+  }
+  const PRIORITY = /directeur|directrice|vp |vice.pr[eé]|chef|head of|responsable|manager/i;
+  const EVENT    = /marketing|communication|événement|event|expérience|brand|relations/i;
+  candidates.sort((a, b) => {
+    const s = (x) => (PRIORITY.test(x.title || "") ? 2 : 0) + (EVENT.test(x.title || "") ? 1 : 0) + (x.fullName ? 1 : 0);
+    return s(b) - s(a);
+  });
+  return candidates.slice(0, 3);
 }
 
-async function analyzeProspect(prospect, base44, freshnessEnabled) {
-  // KB freshness: only for KB_TOPUP prospects and within budget
+// ── Analyse one prospect ───────────────────────────────────────────────────────
+async function analyzeOneProspect(prospect, base44, freshnessEnabled) {
+  // Heartbeat at start
+  const heartbeatUpdate = { analysisLastHeartbeatAt: new Date().toISOString() };
+
+  // KB freshness
   let snippetToUse = prospect.serpSnippet || "";
   let freshnessUsed = false;
   if (prospect.sourceOrigin === "KB_TOPUP" && prospect.domain && freshnessEnabled) {
-    const liveSnippet = await kbFreshnessSnippet(prospect.domain);
-    if (liveSnippet) { snippetToUse = liveSnippet; freshnessUsed = true; }
+    const live = await kbFreshnessSnippet(prospect.domain);
+    if (live) { snippetToUse = live; freshnessUsed = true; }
   }
 
   // AI analysis
   const analysis = await callOpenAI([
     {
       role: "system",
-      content: `Tu es un expert en prospection B2B pour SYNC Productions (partenaire audiovisuel à Montréal).
-SYNC offre: son, éclairage, captation, webdiffusion/hybride pour événements corporatifs.
-ICP: entreprises/organisations qui organisent leurs propres événements corporatifs.
-Tu n'inventes pas de faits. Sortie JSON strict uniquement.`
+      content: `Tu es un expert en prospection B2B pour SYNC Productions (Montréal).
+SYNC = partenaire audiovisuel événementiel : son, éclairage, captation vidéo, webdiffusion/hybride pour conférences, congrès, assemblées générales, galas, formations internes, townhalls.
+ICP : entreprises/organisations qui ORGANISENT leurs propres événements corporatifs.
+Ton : professionnel, concis, FR-CA. Tu n'inventes aucun fait. JSON strict uniquement.`
     },
     {
       role: "user",
       content: `Analyse ce prospect pour SYNC Productions:
+
 Entreprise: ${prospect.companyName}
 Site: ${prospect.website}
 Domaine: ${prospect.domain}
@@ -154,11 +147,14 @@ Réponds en JSON:
   "opportunities": [{"label": string, "detail": string}],
   "painPoints": [{"label": string, "detail": string}],
   "eventTypes": ["types d'événements probables"],
-  "recommendedApproach": "angle d'approche recommandé en 1-2 phrases",
-  "decisionMakerTitles": ["titres des décideurs à cibler"]
+  "recommendedApproach": "angle d'approche SYNC en 1-2 phrases concrètes, axé réduction de risque / qualité AV / hybridation",
+  "decisionMakerTitles": ["titres précis des décideurs à cibler"]
 }`
     }
   ]);
+
+  // Decision maker discovery
+  const decisionMakers = await findDecisionMakers(prospect.companyName, prospect.domain);
 
   // Hunter contacts
   let hunterContacts = [];
@@ -169,13 +165,15 @@ Réponds en JSON:
     }
   } catch (_) {}
 
-  // Create contacts + enrich LinkedIn
+  // Save contacts
   for (const hc of hunterContacts) {
     try {
       const existing = await base44.entities.Contact.filter({ prospectId: prospect.id, email: hc.value });
-      let contactId = existing[0]?.id;
-      const linkedinUrl = hc.linkedin || await findLinkedInUrl(hc.first_name, hc.last_name, prospect.companyName);
-      if (!contactId) {
+      const linkedinDM = decisionMakers.find(dm =>
+        dm.fullName && hc.first_name &&
+        dm.fullName.toLowerCase().includes(hc.first_name.toLowerCase())
+      );
+      if (existing.length === 0) {
         await base44.entities.Contact.create({
           prospectId: prospect.id,
           ownerUserId: prospect.ownerUserId,
@@ -185,19 +183,37 @@ Réponds en JSON:
           title: hc.position || "",
           email: hc.value,
           emailConfidence: hc.confidence,
-          linkedinUrl: linkedinUrl || "",
+          linkedinUrl: hc.linkedin || linkedinDM?.linkedinUrl || "",
           hasEmail: true,
           source: "HUNTER",
         });
-      } else if (linkedinUrl && !existing[0]?.linkedinUrl) {
-        await base44.entities.Contact.update(contactId, { linkedinUrl });
       }
     } catch (_) {}
   }
 
-  // Stub contacts from AI titles
-  if (hunterContacts.length === 0 && analysis.decisionMakerTitles?.length > 0) {
-    const contactPageUrl = `https://www.${prospect.domain}/contact`;
+  for (const dm of decisionMakers) {
+    try {
+      const matched = dm.fullName && hunterContacts.some(h =>
+        dm.fullName && h.first_name && dm.fullName.toLowerCase().includes(h.first_name.toLowerCase())
+      );
+      if (matched) continue;
+      const existing = await base44.entities.Contact.filter({ prospectId: prospect.id, linkedinUrl: dm.linkedinUrl }).catch(() => []);
+      if (existing.length === 0) {
+        await base44.entities.Contact.create({
+          prospectId: prospect.id,
+          ownerUserId: prospect.ownerUserId,
+          fullName: dm.fullName || "",
+          title: dm.title || "",
+          linkedinUrl: dm.linkedinUrl || "",
+          hasEmail: false,
+          source: "SERP",
+          contactPageUrl: dm.sourceUrl || "",
+        });
+      }
+    } catch (_) {}
+  }
+
+  if (hunterContacts.length === 0 && decisionMakers.length === 0 && analysis.decisionMakerTitles?.length > 0) {
     for (const title of analysis.decisionMakerTitles.slice(0, 2)) {
       try {
         const existing = await base44.entities.Contact.filter({ prospectId: prospect.id, title });
@@ -207,7 +223,7 @@ Réponds en JSON:
             ownerUserId: prospect.ownerUserId,
             title,
             hasEmail: false,
-            contactPageUrl,
+            contactPageUrl: `https://${prospect.domain}/contact`,
             source: "SERP",
           });
         }
@@ -230,9 +246,10 @@ Réponds en JSON:
     analysisErrorAt: null,
   });
 
-  return { analysis, freshnessUsed };
+  return { analysis, freshnessUsed, decisionMakersFound: decisionMakers.length };
 }
 
+// ── Main handler ──────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
@@ -249,19 +266,11 @@ Deno.serve(async (req) => {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Freshness budget: max 30 KB freshness checks per campaign run
   const KB_FRESHNESS_MAX = 30;
   let freshnessChecksDone = 0;
-
   const startedAt = Date.now();
   const mode = prospectIds && prospectIds.length > 0 ? "selection" : "all";
   const skipStatuses = ["ANALYSÉ", "QUALIFIÉ", "REJETÉ", "EXPORTÉ"];
-
-  await base44.entities.Campaign.update(campaignId, {
-    analysisStatus: "RUNNING",
-    analysisLastHeartbeatAt: new Date().toISOString(),
-    analysisProgressPct: 0,
-  });
 
   const allProspects = await base44.entities.Prospect.filter({ campaignId }, "-created_date", 500);
   let prospects;
@@ -273,6 +282,15 @@ Deno.serve(async (req) => {
 
   const total = prospects.length;
 
+  // Store total for real progress tracking
+  await base44.entities.Campaign.update(campaignId, {
+    analysisStatus: "RUNNING",
+    analysisLastHeartbeatAt: new Date().toISOString(),
+    analysisProgressPct: 0,
+    analysisTargetCount: total,
+    analysisDoneCount: 0,
+  });
+
   if (total === 0) {
     await base44.entities.Campaign.update(campaignId, { analysisStatus: "COMPLETED", analysisProgressPct: 100 });
     return Response.json({ success: true, analyzed: 0, failed: 0, total: 0, mode });
@@ -280,16 +298,24 @@ Deno.serve(async (req) => {
 
   let analyzed = 0;
   let failed = 0;
-  const BATCH = 3;
+  const BATCH = 2; // Small batches to avoid timeout + frequent heartbeats
 
   for (let i = 0; i < prospects.length; i += BATCH) {
     const batch = prospects.slice(i, i + BATCH);
 
+    // Heartbeat BEFORE each batch
+    const doneCount = analyzed + failed;
+    const pct = Math.min(Math.round((doneCount / total) * 100), 99);
+    await base44.entities.Campaign.update(campaignId, {
+      analysisLastHeartbeatAt: new Date().toISOString(),
+      analysisProgressPct: pct,
+      analysisDoneCount: doneCount,
+    });
+
     const settled = await Promise.allSettled(batch.map(async (prospect) => {
       try {
-        // Only allow freshness if within budget
         const canUseFreshness = prospect.sourceOrigin === "KB_TOPUP" && freshnessChecksDone < KB_FRESHNESS_MAX;
-        const result = await analyzeProspect(prospect, base44, canUseFreshness);
+        const result = await analyzeOneProspect(prospect, base44, canUseFreshness);
         if (result.freshnessUsed) freshnessChecksDone++;
         return { success: true };
       } catch (e) {
@@ -306,30 +332,30 @@ Deno.serve(async (req) => {
       }
     }));
 
-    const batchAnalyzed = settled.filter(r => r.value?.success === true).length;
-    const batchFailed   = settled.filter(r => r.value?.success === false).length;
-    analyzed += batchAnalyzed;
-    failed   += batchFailed;
+    analyzed += settled.filter(r => r.value?.success === true).length;
+    failed   += settled.filter(r => r.value?.success === false).length;
 
-    const pct = Math.min(Math.round(((i + batch.length) / total) * 100), 99);
+    // Heartbeat AFTER each batch with updated progress
+    const newPct = Math.min(Math.round(((analyzed + failed) / total) * 100), 99);
     await base44.entities.Campaign.update(campaignId, {
       analysisLastHeartbeatAt: new Date().toISOString(),
-      analysisProgressPct: pct,
+      analysisProgressPct: newPct,
+      analysisDoneCount: analyzed + failed,
     });
   }
 
-  // Recalculate counts from DB
+  // Final counts
   const finalProspects = await base44.entities.Prospect.filter({ campaignId }, "-created_date", 500);
   const countAnalyzed  = finalProspects.filter(p => ["ANALYSÉ", "QUALIFIÉ", "REJETÉ", "EXPORTÉ"].includes(p.status)).length;
   const countQualified = finalProspects.filter(p => p.status === "QUALIFIÉ").length;
   const countRejected  = finalProspects.filter(p => p.status === "REJETÉ").length;
   const durationMs     = Date.now() - startedAt;
+  const existingUsage  = campaign.toolUsage || {};
 
-  // Merge freshness stats into existing toolUsage
-  const existingUsage = campaign.toolUsage || {};
   await base44.entities.Campaign.update(campaignId, {
     analysisStatus: "COMPLETED",
     analysisProgressPct: 100,
+    analysisDoneCount: analyzed + failed,
     countAnalyzed,
     countQualified,
     countRejected,
@@ -339,7 +365,6 @@ Deno.serve(async (req) => {
       freshnessChecksDone,
       freshnessChecksMax: KB_FRESHNESS_MAX,
       braveRateLimitRemaining: braveRLState.remaining,
-      braveRateLimitReset: braveRLState.reset,
       brave429Count: (existingUsage.brave429Count || 0) + braveRLState.count429,
     },
   });
