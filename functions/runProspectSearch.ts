@@ -99,13 +99,13 @@ function buildQueryVariants(campaign, loc) {
 
   const queries = [
     `"conférence annuelle" organisateur ${sector} ${loc} ${exclude}`.trim(),
-    `"AGA" OR "assemblée générale annuelle" entreprise ${sector} ${loc} ${exclude}`.trim(),
+    `"assemblée générale annuelle" entreprise ${sector} ${loc} ${exclude}`.trim(),
     `"congrès annuel" association ${sector} ${loc} ${exclude}`.trim(),
-    `"gala" OR "cérémonie" entreprise ${sector} ${loc} ${exclude}`.trim(),
+    `"gala annuel" OR "cérémonie" entreprise ${sector} ${loc} ${exclude}`.trim(),
     `"formation interne" OR "townhall" organisation ${sector} ${loc} ${exclude}`.trim(),
     `"colloque" OR "symposium" ${sector} ${loc} ${exclude}`.trim(),
     `"journée d'entreprise" OR "journée employés" ${loc} ${sector} ${exclude}`.trim(),
-    `"webinaire" OR "webdiffusion" ${sector} ${loc} entreprise ${exclude}`.trim(),
+    `"webdiffusion" OR "webinaire" ${sector} ${loc} entreprise ${exclude}`.trim(),
     `association professionnelle congrès ${loc} ${sector}`.trim(),
     `ordre professionnel assemblée annuelle ${loc} ${sector}`.trim(),
     `chambre de commerce événement corporatif ${loc} membres`.trim(),
@@ -115,7 +115,7 @@ function buildQueryVariants(campaign, loc) {
       `${kws} conférence réunion annuelle ${loc} ${exclude}`.trim(),
     ] : []),
     `entreprise ${loc} événements corporatifs annuels ${sector}`.trim(),
-    `organisations ${loc} congrès gala AGA ${sector}`.trim(),
+    `organisations ${loc} congrès gala assemblée générale ${sector}`.trim(),
     `site:.ca entreprise événement corporatif ${loc} ${sector}`.trim(),
     `filetype:pdf programme conférence annuelle ${loc} ${sector}`.trim(),
   ];
@@ -128,11 +128,11 @@ function buildBroadFallbacks(campaign, loc) {
   return [
     `organisation ${loc} événement annuel réunion ${sector}`.trim(),
     `entreprise ${loc} ${sector} conférence annuelle`.trim(),
-    `association ${loc} ${sector} membres assemblée`.trim(),
-    `chambres de commerce ${loc} membres annuaire entreprises`.trim(),
-    `"${loc}" organisateur événement corporatif B2B`.trim(),
+    `association ${loc} ${sector} membres assemblée générale`.trim(),
+    `chambres de commerce ${loc} membres entreprises`.trim(),
+    `"${loc}" événement corporatif B2B organisateur`.trim(),
     `grande entreprise ${loc} ${sector} site web`.trim(),
-    `syndicat association ${loc} ${sector} annuel`.trim(),
+    `syndicat association ${loc} ${sector} assemblée annuelle`.trim(),
   ];
 }
 
@@ -141,16 +141,25 @@ const BLOCKED_DOMAINS = new Set([
   "youtube.com", "youtu.be",
   "facebook.com", "instagram.com", "twitter.com", "x.com",
   "linkedin.com", "tiktok.com", "pinterest.com", "reddit.com",
-  "eventbrite.com", "eventbrite.ca", "meetup.com", "ticketmaster.com", "ticketmaster.ca",
+  "eventbrite.com", "eventbrite.ca", "eventbrite.fr", "meetup.com",
+  "ticketmaster.com", "ticketmaster.ca",
   "glassdoor.com", "indeed.com", "monster.com",
   "lapresse.ca", "ledevoir.com", "journaldequebec.com", "lesaffaires.com",
   "radio-canada.ca", "cbc.ca", "tvanouvelles.ca", "24heures.ca",
   "cision.com", "newswire.ca", "prnewswire.com", "businesswire.com", "globenewswire.com",
   "google.com", "bing.com", "yahoo.com", "yelp.com", "tripadvisor.com",
   "wordpress.com", "wix.com", "squarespace.com", "medium.com", "substack.com",
+  "pagesjaunes.ca", "pagesjaunes.com", "yellowpages.ca", "411.ca",
+  "10times.com", "10times.ca", "allevents.in", "eventful.com",
+  "tourismexpress.com", "batimatech.com", "laguide.com",
+  "conferencealerts.com", "allconferences.com", "confex.com",
+  "eventsmontreal.ca", "eventzilla.net",
 ]);
 
-const BLOCKED_URL_PATHS = /\/blog\/|\/news\/|\/press\/|\/article\/|\/articles\/|\/actualite\/|\/actualites\/|\/magazine\/|\/careers\/|\/carrieres\/|\/jobs\/|\/emplois\/|\/offres-emploi\/|\/salle-de-presse\/|\/communique\/|\/communiques\/|\/medias\/|\/presse\//i;
+const BLOCKED_URL_PATHS = /\/blog\/|\/news\/|\/press\/|\/article\/|\/articles\/|\/actualite\/|\/actualites\/|\/magazine\/|\/careers\/|\/carrieres\/|\/jobs\/|\/emplois\/|\/offres-emploi\/|\/salle-de-presse\/|\/communique\/|\/communiques\/|\/medias\/|\/presse\/|\/evenement\/|\/evenements\/|\/events\/|\/event\/|\/agenda\/|\/programme\/|\/inscription\/|\/register\//i;
+
+// Titles that look like event pages rather than org homepages
+const EVENT_TITLE_PATTERNS = /^(congrès|conférence|assemblée générale|assemblée|gala|colloque|symposium|forum|sommet|summit|journée|webinaire|séminaire|atelier)\b/i;
 
 function normalizeResult(r) {
   const url = r.url || r.link;
@@ -169,21 +178,29 @@ function normalizeResult(r) {
   const excludePatterns = /agence événementielle|event planner|organisateur professionnel|planificateur événement|bureau de congrès|répertoire fournisseurs|annuaire|directory|listing|database|crm\b|logiciel événement|software|saas|plateforme de gestion|template|thème wordpress|plugin/i;
   if (excludePatterns.test(combined)) return null;
 
-  const eventPatterns = /conférence|aga\b|assemblée générale|gala|événement corporatif|événement d'entreprise|corporate event|meeting annuel|summit|forum|symposium|colloque|webinaire|formation interne|townhall|town.?hall|réunion annuelle|congrès/i;
+  const eventPatterns = /assemblée générale|conférence|gala|événement corporatif|événement d'entreprise|corporate event|meeting annuel|summit|forum|symposium|colloque|webinaire|formation interne|townhall|town.?hall|réunion annuelle|congrès/i;
   if (!eventPatterns.test(combined)) return null;
 
   const articleTitlePatterns = /^(comment |pourquoi |quand |les \d+|top \d+|\d+ façons|guide |conseils |astuces |what is |how to |best |why |when )/i;
   if (articleTitlePatterns.test(r.title || "")) return null;
 
-  let websiteUrl = url;
+  // Always use root domain as website URL
+  let websiteUrl = `https://${domain}`;
   try {
     const parsed = new URL(url.startsWith("http") ? url : "https://" + url);
-    if (parsed.pathname.split("/").filter(Boolean).length > 2) {
-      websiteUrl = `https://${parsed.hostname}`;
-    }
+    websiteUrl = `https://${parsed.hostname}`;
   } catch (_) {}
 
-  const companyName = (r.title || "").slice(0, 100) || domain;
+  // Derive company name: if title looks like an event page, use domain-derived name instead
+  const rawTitle = (r.title || "").slice(0, 120);
+  let companyName;
+  if (EVENT_TITLE_PATTERNS.test(rawTitle) || rawTitle.length < 4) {
+    // Derive from domain: "aqta.ca" → "Aqta", "cag-acg.ca" → "Cag Acg"
+    const domainBase = domain.replace(/\.(ca|com|org|net|qc\.ca)$/, "");
+    companyName = domainBase.split(/[-_.]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  } else {
+    companyName = rawTitle;
+  }
 
   return {
     normalized: {
