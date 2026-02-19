@@ -521,9 +521,9 @@ export default function CampaignDetail() {
             )}
           </div>
           <div className="flex gap-2 justify-end">
-            <AlertDialogCancel>Conserver</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
-              Supprimer la campagne
+            <AlertDialogCancel disabled={isDeleting}>Conserver</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-red-600 hover:bg-red-700 flex items-center gap-2">
+              {isDeleting ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Suppression en cours…</> : "Supprimer la campagne"}
             </AlertDialogAction>
           </div>
         </AlertDialogContent>
