@@ -361,7 +361,12 @@ export default function CampaignDetail() {
                       />
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-slate-800">{p.companyName}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium text-slate-800">{p.companyName}</span>
+                        {p.sourceOrigin === "KB_TOPUP" && (
+                          <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-medium">KB</span>
+                        )}
+                      </div>
                       <a href={p.website} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
                         className="text-xs text-blue-500 hover:underline flex items-center gap-0.5">
                         {p.domain} <ExternalLink className="w-2.5 h-2.5" />
