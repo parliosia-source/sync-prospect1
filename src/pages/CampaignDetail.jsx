@@ -96,8 +96,15 @@ export default function CampaignDetail() {
   };
 
   const handleDelete = async () => {
-    await base44.functions.invoke("deleteCampaign", { campaignId, deleteProspects });
-    window.location.href = createPageUrl("Campaigns");
+    setIsDeleting(true);
+    try {
+      await base44.functions.invoke("deleteCampaign", { campaignId, deleteProspects });
+      window.location.href = createPageUrl("Campaigns");
+    } catch (e) {
+      setIsDeleting(false);
+      setCampaign(c => ({ ...c, errorMessage: e?.response?.data?.error || "Erreur lors de la suppression." }));
+      setDeleteDialog(false);
+    }
   };
 
   const handleAnalyzeAll = (prospectIds) => {
