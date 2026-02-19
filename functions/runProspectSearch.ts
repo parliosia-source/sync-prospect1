@@ -299,6 +299,7 @@ Deno.serve(async (req) => {
 
             existingDomains.add(domain);
             created++;
+            createdWeb++;
             pageCreated++;
             }
       queryLog.push({ query: query.slice(0, 80), page, resultsRaw: results.length, added: pageCreated });
