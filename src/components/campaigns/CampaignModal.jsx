@@ -57,7 +57,7 @@ export default function CampaignModal({ open, onClose, onSave }) {
     onClose();
     // Reset form
     setForm({
-      name: "", targetCount: 50, industrySectors: [], companySize: "MID",
+      name: "", targetCount: 50, industrySectors: [], companySize: "ALL",
       locationMode: "CITY", locationQuery: "Montréal, QC", locationKey: "MONTREAL", keywords: [],
       customSector: "",
     });
