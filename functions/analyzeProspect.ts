@@ -17,6 +17,21 @@ async function callOpenAI(messages) {
   return JSON.parse(data.choices[0].message.content);
 }
 
+const BRAVE_KEY = Deno.env.get("BRAVE_API_KEY");
+
+async function kbFreshnessSnippet(domain) {
+  // 1 lightweight Brave search to get a recent snippet for KB_TOPUP prospects
+  const query = `site:${domain} (événement OR conférence OR gala OR congrès OR AGA OR assemblée)`;
+  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=3&extra_snippets=true&country=ca`;
+  try {
+    const res = await fetch(url, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const results = data.web?.results || [];
+    return results.map(r => r.extra_snippets?.[0] || r.description || "").filter(Boolean).join(" ").slice(0, 500) || null;
+  } catch (_) { return null; }
+}
+
 async function hunterDomainSearch(domain, company) {
   const url = `https://api.hunter.io/v2/domain-search?domain=${encodeURIComponent(domain)}&company=${encodeURIComponent(company || "")}&limit=5&api_key=${HUNTER_KEY}`;
   const res = await fetch(url);
