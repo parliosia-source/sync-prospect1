@@ -171,7 +171,7 @@ Réponds en JSON:
     }
   } catch (_) {}
 
-  // Save Hunter contacts
+  // 1. Hunter contacts (have email — best quality)
   for (const hc of hunterContacts) {
     try {
       const existing = await base44.entities.Contact.filter({ prospectId: prospect.id, email: hc.value });
@@ -198,7 +198,7 @@ Réponds en JSON:
     } catch (_) {}
   }
 
-  // Save LinkedIn-only DMs
+  // 2. LinkedIn-only DMs
   const hunterNames = hunterContacts.map(h => `${h.first_name || ""} ${h.last_name || ""}`.trim().toLowerCase());
   for (const dm of decisionMakers) {
     try {
@@ -221,10 +221,11 @@ Réponds en JSON:
     } catch (_) {}
   }
 
-  // Stub contacts from AI titles (last resort)
-  if (hunterContacts.length === 0 && decisionMakers.length === 0 && analysis.decisionMakerTitles?.length > 0) {
-    for (const title of analysis.decisionMakerTitles.slice(0, 2)) {
-      try {
+  // 3. Fallback: AI title stubs — ALWAYS create at least one if no contacts found
+  try {
+    const existingCount = await base44.entities.Contact.filter({ prospectId: prospect.id }).then(r => r.length).catch(() => 0);
+    if (existingCount === 0 && analysis.decisionMakerTitles?.length > 0) {
+      for (const title of analysis.decisionMakerTitles.slice(0, 2)) {
         const existing = await base44.entities.Contact.filter({ prospectId: prospect.id, title });
         if (existing.length === 0) {
           await base44.entities.Contact.create({
@@ -236,9 +237,9 @@ Réponds en JSON:
             source:         "SERP",
           });
         }
-      } catch (_) {}
+      }
     }
-  }
+  } catch (_) {}
 
   await base44.entities.Prospect.update(prospect.id, {
     status:              "ANALYSÉ",
