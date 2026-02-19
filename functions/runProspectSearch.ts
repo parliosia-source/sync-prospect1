@@ -225,6 +225,7 @@ Deno.serve(async (req) => {
   let skippedDupe = 0;
   let filteredNonOrgCount = 0;
   let braveRequestsUsed = 0;
+  let createdWeb = 0; // track web vs KB separately
   let totalQueriesRun = 0;
   let rateLimitHit = false;
   let budgetGuardTriggered = false;
