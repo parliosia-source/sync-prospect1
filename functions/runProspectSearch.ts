@@ -212,11 +212,12 @@ Deno.serve(async (req) => {
   const existingDomains = new Set(existing.map(p => p.domain).filter(Boolean));
   let created = existing.length;
 
-  // Also dedup against KB
+  // Load ALL KB entities for dedup (web phase skips KB domains to avoid overlap)
+  let allKbEntities = [];
   let kbDomains = new Set();
   try {
-    const kbEntities = await base44.entities.KBEntity.filter({}, "-created_date", 200);
-    kbEntities.forEach(e => { if (e.domain) kbDomains.add(e.domain); });
+    allKbEntities = await base44.entities.KBEntity.filter({}, "-created_date", 500);
+    allKbEntities.forEach(e => { if (e.domain) kbDomains.add(e.domain.toLowerCase().replace(/^www\./, "")); });
   } catch (_) {}
 
   let allQueries = buildQueryVariants(campaign, loc);
