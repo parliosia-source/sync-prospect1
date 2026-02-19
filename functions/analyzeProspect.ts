@@ -70,20 +70,15 @@ async function hunterDomainSearch(domain, company) {
   return res.json();
 }
 
-// ── Decision Maker Discovery ──────────────────────────────────────────────────
+// ── Decision Maker Discovery via LinkedIn (SERP) ──────────────────────────────
 async function findDecisionMakers(companyName, domain) {
   const candidates = [];
   const seen = new Set();
 
-  // Multiple query strategies to maximize LinkedIn profile hits
   const queries = [
-    // Most precise: company name + linkedin.com/in + role
     `site:linkedin.com/in "${companyName}" (Directeur OR Directrice OR VP OR "Vice-Président" OR "Head of" OR Responsable OR "Chef de") (marketing OR communications OR événements OR event OR "relations publiques")`,
-    // Domain-based (for companies where name doesn't match LinkedIn well)
     `site:linkedin.com/in "${domain}" (Directeur OR VP OR Responsable) (marketing OR communications OR événement)`,
-    // Broader: company name without site filter (captures profiles that mention the company)
     `"${companyName}" linkedin.com/in (Directeur marketing OR "VP Communications" OR "Responsable événements" OR "Chargé de communications" OR "Gestionnaire événements")`,
-    // English fallback
     `site:linkedin.com/in "${companyName}" (Director OR Manager OR "Head of") (Marketing OR Communications OR Events)`,
   ];
 
@@ -97,7 +92,6 @@ async function findDecisionMakers(companyName, domain) {
       const url = r.url || r.link || "";
       if (!url.includes("linkedin.com/in/")) continue;
 
-      // Normalize URL: strip query params, trailing slashes, and language variants
       const cleanUrl = url.split("?")[0].replace(/\/$/, "").replace(/\/[a-z]{2}_[A-Z]{2}$/, "");
       if (seen.has(cleanUrl)) continue;
       seen.add(cleanUrl);
@@ -105,11 +99,9 @@ async function findDecisionMakers(companyName, domain) {
       const title   = r.title   || "";
       const snippet = r.description || r.snippet || "";
 
-      // Extract full name: LinkedIn titles are usually "Firstname Lastname - Role | LinkedIn"
       const nameMatch = title.match(/^([A-ZÀ-ÿ][a-zà-ÿ'-]+(?: [A-ZÀ-ÿ][a-zà-ÿ'-]+){1,3})\s*[-–|]/);
       const fullName  = nameMatch ? nameMatch[1].trim() : null;
 
-      // Extract role
       const roleMatch = title.match(/[-–|]\s*([^|–\-]{5,80})(?:\s*[-–|]|$)/);
       const role = roleMatch ? roleMatch[1].trim() : (snippet.slice(0, 100) || "");
 
@@ -123,7 +115,6 @@ async function findDecisionMakers(companyName, domain) {
     }
   }
 
-  // Score and sort by role relevance
   const PRIORITY = /directeur|directrice|vp |vice.pr[eé]|chef|head of|responsable|manager|gestionnaire|chargé/i;
   const EVENT    = /marketing|communication|événement|event|expérience|brand|relations|public/i;
 
@@ -136,6 +127,80 @@ async function findDecisionMakers(companyName, domain) {
   });
 
   return candidates.slice(0, 3);
+}
+
+// ── Save contacts — always guarantee at least one ─────────────────────────────
+async function saveContacts(base44, prospectId, prospect, hunterContacts, decisionMakers, aiTitles) {
+  const savedContacts = [];
+
+  // 1. Hunter contacts (have email — best quality)
+  for (const hc of hunterContacts) {
+    const existing = await base44.entities.Contact.filter({ prospectId, email: hc.value });
+    const linkedinDM = decisionMakers.find(dm =>
+      dm.fullName && hc.first_name && hc.last_name &&
+      dm.fullName.toLowerCase().includes(hc.first_name.toLowerCase()) &&
+      dm.fullName.toLowerCase().includes(hc.last_name.toLowerCase())
+    );
+    const linkedinUrl = hc.linkedin || linkedinDM?.linkedinUrl || "";
+    if (existing.length === 0) {
+      const c = await base44.entities.Contact.create({
+        prospectId,
+        ownerUserId:     prospect.ownerUserId,
+        firstName:       hc.first_name || "",
+        lastName:        hc.last_name  || "",
+        fullName:        `${hc.first_name || ""} ${hc.last_name || ""}`.trim(),
+        title:           hc.position   || "",
+        email:           hc.value,
+        emailConfidence: hc.confidence,
+        linkedinUrl,
+        hasEmail: true,
+        source: "HUNTER",
+      });
+      savedContacts.push(c);
+    }
+  }
+
+  // 2. LinkedIn-only DMs (not matched to Hunter)
+  const hunterNames = hunterContacts.map(h => `${h.first_name || ""} ${h.last_name || ""}`.trim().toLowerCase());
+  for (const dm of decisionMakers) {
+    if (!dm.linkedinUrl) continue;
+    const alreadySaved = dm.fullName && hunterNames.some(n => n && dm.fullName && n.includes(dm.fullName.split(" ")[0]?.toLowerCase()));
+    if (alreadySaved) continue;
+    const existing = await base44.entities.Contact.filter({ prospectId, linkedinUrl: dm.linkedinUrl }).catch(() => []);
+    if (existing.length === 0) {
+      const c = await base44.entities.Contact.create({
+        prospectId,
+        ownerUserId:    prospect.ownerUserId,
+        fullName:       dm.fullName  || "",
+        title:          dm.title     || "",
+        linkedinUrl:    dm.linkedinUrl,
+        hasEmail:       false,
+        source:         "SERP",
+        contactPageUrl: dm.sourceUrl || "",
+      });
+      savedContacts.push(c);
+    }
+  }
+
+  // 3. Fallback: AI-generated title stubs — ALWAYS create at least 2 if no contacts found
+  const existingCount = await base44.entities.Contact.filter({ prospectId }).then(r => r.length).catch(() => 0);
+  if (existingCount === 0 && aiTitles?.length > 0) {
+    for (const title of aiTitles.slice(0, 2)) {
+      const existing = await base44.entities.Contact.filter({ prospectId, title });
+      if (existing.length === 0) {
+        await base44.entities.Contact.create({
+          prospectId,
+          ownerUserId:    prospect.ownerUserId,
+          title,
+          hasEmail:       false,
+          contactPageUrl: `https://${prospect.domain}/contact`,
+          source:         "SERP",
+        });
+      }
+    }
+  }
+
+  return savedContacts;
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -165,18 +230,19 @@ Deno.serve(async (req) => {
     if (liveSnippet) { snippetToUse = liveSnippet; freshnessUsed = true; }
   }
 
-  // AI analysis
-  const analysis = await callOpenAI([
-    {
-      role: "system",
-      content: `Tu es un expert en prospection B2B pour SYNC Productions (Montréal).
+  // Run AI analysis + decision maker search in parallel
+  const [analysis, decisionMakers] = await Promise.all([
+    callOpenAI([
+      {
+        role: "system",
+        content: `Tu es un expert en prospection B2B pour SYNC Productions (Montréal).
 SYNC = partenaire audiovisuel événementiel : son, éclairage, captation vidéo, webdiffusion/hybride pour conférences, congrès, assemblées générales, galas, formations internes, townhalls.
 ICP : entreprises/organisations qui ORGANISENT leurs propres événements corporatifs.
 Ton : professionnel, concis, FR-CA. Tu n'inventes aucun fait. JSON strict uniquement.`
-    },
-    {
-      role: "user",
-      content: `Analyse ce prospect pour SYNC Productions:
+      },
+      {
+        role: "user",
+        content: `Analyse ce prospect pour SYNC Productions:
 
 Entreprise: ${prospect.companyName}
 Site: ${prospect.website}
@@ -196,13 +262,12 @@ Réponds en JSON:
   "painPoints": [{"label": string, "detail": string}],
   "eventTypes": ["types d'événements probables"],
   "recommendedApproach": "angle d'approche SYNC en 1-2 phrases concrètes, axé réduction de risque / qualité AV / hybridation",
-  "decisionMakerTitles": ["titres précis des décideurs à cibler (ex: Directeur marketing, VP Communications)"]
+  "decisionMakerTitles": ["titres précis des décideurs à cibler (ex: Directeur marketing, VP Communications, Responsable événements, Directrice communications)"]
 }`
-    }
+      }
+    ]),
+    findDecisionMakers(prospect.companyName, prospect.domain),
   ]);
-
-  // Decision maker discovery
-  const decisionMakers = await findDecisionMakers(prospect.companyName, prospect.domain);
 
   // Hunter contacts
   let hunterContacts = [];
@@ -216,73 +281,8 @@ Réponds en JSON:
     }
   } catch (e) { hunterError = e.message; }
 
-  // Save contacts — merge LinkedIn DMs with Hunter
-  const savedContacts = [];
-
-  for (const hc of hunterContacts) {
-    const existing = await base44.entities.Contact.filter({ prospectId, email: hc.value });
-    const linkedinDM = decisionMakers.find(dm =>
-      dm.fullName && hc.first_name && hc.last_name &&
-      dm.fullName.toLowerCase().includes(hc.first_name.toLowerCase()) &&
-      dm.fullName.toLowerCase().includes(hc.last_name.toLowerCase())
-    );
-    const linkedinUrl = hc.linkedin || linkedinDM?.linkedinUrl || "";
-    if (existing.length === 0) {
-      const c = await base44.entities.Contact.create({
-        prospectId,
-        ownerUserId:     prospect.ownerUserId,
-        firstName:       hc.first_name || "",
-        lastName:        hc.last_name  || "",
-        fullName:        `${hc.first_name || ""} ${hc.last_name || ""}`.trim(),
-        title:           hc.position   || "",
-        email:           hc.value,
-        emailConfidence: hc.confidence,
-        linkedinUrl,
-        hasEmail: true,
-        source: "HUNTER",
-      });
-      savedContacts.push(c);
-    }
-  }
-
-  // LinkedIn-only DMs (not matched to Hunter)
-  for (const dm of decisionMakers) {
-    if (!dm.linkedinUrl) continue;
-    const alreadySaved = dm.fullName && savedContacts.some(c =>
-      c.fullName && dm.fullName && c.fullName.toLowerCase().includes(dm.fullName.split(" ")[0]?.toLowerCase())
-    );
-    if (alreadySaved) continue;
-    const existing = await base44.entities.Contact.filter({ prospectId, linkedinUrl: dm.linkedinUrl }).catch(() => []);
-    if (existing.length === 0) {
-      await base44.entities.Contact.create({
-        prospectId,
-        ownerUserId:    prospect.ownerUserId,
-        fullName:       dm.fullName  || "",
-        title:          dm.title     || "",
-        linkedinUrl:    dm.linkedinUrl,
-        hasEmail:       false,
-        source:         "SERP",
-        contactPageUrl: dm.sourceUrl || "",
-      });
-    }
-  }
-
-  // Stub contacts from AI titles (last resort — no LinkedIn or Hunter found)
-  if (hunterContacts.length === 0 && decisionMakers.length === 0 && analysis.decisionMakerTitles?.length > 0) {
-    for (const title of analysis.decisionMakerTitles.slice(0, 2)) {
-      const existing = await base44.entities.Contact.filter({ prospectId, title });
-      if (existing.length === 0) {
-        await base44.entities.Contact.create({
-          prospectId,
-          ownerUserId:    prospect.ownerUserId,
-          title,
-          hasEmail:       false,
-          contactPageUrl: `https://${prospect.domain}/contact`,
-          source:         "SERP",
-        });
-      }
-    }
-  }
+  // Save contacts — always guarantees at least one stub
+  await saveContacts(base44, prospectId, prospect, hunterContacts, decisionMakers, analysis.decisionMakerTitles);
 
   // Update prospect
   await base44.entities.Prospect.update(prospectId, {
