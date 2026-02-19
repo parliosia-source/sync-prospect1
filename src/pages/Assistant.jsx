@@ -1,17 +1,19 @@
 import { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
-import { Link } from "react-router-dom";
-import { createPageUrl } from "@/utils";
-import { Bot, Plus, MessageSquare, Globe, Building2 } from "lucide-react";
+import { Bot, Plus, MessageSquare, Globe, Building2, Pencil, Trash2, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import MessageBubble from "@/components/assistant/MessageBubble";
 import ChatInput from "@/components/assistant/ChatInput";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function Assistant() {
   const params = new URLSearchParams(window.location.search);
   const contextProspectId = params.get("prospectId");
-  const contextLeadId = params.get("leadId");
+  const contextLeadId     = params.get("leadId");
 
   const [user, setUser] = useState(null);
   const [conversations, setConversations] = useState([]);
@@ -19,6 +21,12 @@ export default function Assistant() {
   const [messages, setMessages] = useState([]);
   const [isSending, setIsSending] = useState(false);
   const [contextEntity, setContextEntity] = useState(null);
+
+  // Rename/delete state
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -53,18 +61,16 @@ export default function Assistant() {
   };
 
   const createNewConversation = async () => {
-    const meta = { name: contextEntity ? `${contextEntity.data.companyName}` : "Nouvelle conversation" };
+    const meta = { name: contextEntity ? contextEntity.data.companyName : "Nouvelle conversation" };
     const conv = await base44.agents.createConversation({ agent_name: "sync_assistant", metadata: meta });
     setActiveConvId(conv.id);
     setMessages([]);
     await loadConversations();
 
-    // Auto-inject context if any
     if (contextEntity) {
       const contextMsg = contextEntity.type === "prospect"
         ? `[CONTEXTE PROSPECT]\nEntreprise: ${contextEntity.data.companyName}\nSite: ${contextEntity.data.website}\nIndustrie: ${contextEntity.data.industry || ""}\nScore: ${contextEntity.data.relevanceScore || ""}\nSegment: ${contextEntity.data.segment || ""}\nRaisons: ${(contextEntity.data.relevanceReasons || []).join("; ")}\nApproche: ${contextEntity.data.recommendedApproach || ""}`
         : `[CONTEXTE LEAD]\nEntreprise: ${contextEntity.data.companyName}\nStatut: ${contextEntity.data.status}\nMessages envoyés: ${contextEntity.data.messageCount || 0}`;
-
       await base44.agents.addMessage(conv, { role: "user", content: contextMsg });
     }
   };
@@ -93,37 +99,93 @@ export default function Assistant() {
     setIsSending(false);
   };
 
+  const startRename = (conv) => {
+    setRenamingId(conv.id);
+    setRenameValue(conv.metadata?.name || "");
+  };
+
+  const confirmRename = async (convId) => {
+    if (!renameValue.trim()) { setRenamingId(null); return; }
+    await base44.agents.updateConversation(convId, { metadata: { name: renameValue.trim() } });
+    setRenamingId(null);
+    await loadConversations();
+  };
+
+  const handleDeleteConversation = async (convId) => {
+    // If deleting the active conversation, switch to empty state
+    if (convId === activeConvId) {
+      setActiveConvId(null);
+      setMessages([]);
+    }
+    try {
+      // Base44 SDK: delete conversation
+      await base44.agents.updateConversation(convId, { metadata: { deleted: true } });
+    } catch (_) {}
+    setConversations(prev => prev.filter(c => c.id !== convId));
+    setDeleteConfirmId(null);
+  };
+
   const filteredMessages = messages.filter(m => {
     if (m.role === "user" && m.content?.startsWith("[CONTEXTE")) return false;
     return true;
   });
 
+  const visibleConversations = conversations.filter(c => !c.metadata?.deleted);
+
   return (
     <div className="flex h-full overflow-hidden">
-      {/* Sidebar conversations */}
-      <div className="w-56 flex-shrink-0 bg-white border-r flex flex-col">
+      {/* Sidebar */}
+      <div className="w-60 flex-shrink-0 bg-white border-r flex flex-col">
         <div className="px-3 py-3 border-b">
           <Button onClick={createNewConversation} size="sm" className="w-full bg-blue-600 hover:bg-blue-700 gap-2 text-xs">
-            <Plus className="w-3.5 h-3.5" /> Nouvelle conv.
+            <Plus className="w-3.5 h-3.5" /> Nouvelle conversation
           </Button>
         </div>
         <div className="flex-1 overflow-y-auto py-2 space-y-0.5 px-2">
-          {conversations.length === 0 && (
+          {visibleConversations.length === 0 && (
             <p className="text-xs text-slate-400 text-center py-4 px-2">Aucune conversation</p>
           )}
-          {conversations.map(conv => (
-            <button
+          {visibleConversations.map(conv => (
+            <div
               key={conv.id}
-              onClick={() => openConversation(conv.id)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-colors ${
-                activeConvId === conv.id ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50"
+              className={`group flex items-center gap-1 rounded-lg transition-colors ${
+                activeConvId === conv.id ? "bg-blue-50" : "hover:bg-slate-50"
               }`}
             >
-              <div className="flex items-center gap-1.5 min-w-0">
-                <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="truncate">{conv.metadata?.name || "Conversation"}</span>
-              </div>
-            </button>
+              {renamingId === conv.id ? (
+                <div className="flex items-center gap-1 px-2 py-1.5 w-full">
+                  <Input
+                    value={renameValue}
+                    onChange={e => setRenameValue(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") confirmRename(conv.id); if (e.key === "Escape") setRenamingId(null); }}
+                    className="h-6 text-xs px-1.5 flex-1"
+                    autoFocus
+                  />
+                  <button onClick={() => confirmRename(conv.id)} className="text-green-600 hover:text-green-800"><Check className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => setRenamingId(null)} className="text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={() => openConversation(conv.id)}
+                    className={`flex items-center gap-1.5 px-2 py-2 text-xs flex-1 min-w-0 text-left ${
+                      activeConvId === conv.id ? "text-blue-700" : "text-slate-600"
+                    }`}
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="truncate">{conv.metadata?.name || "Conversation"}</span>
+                  </button>
+                  <div className="flex-shrink-0 hidden group-hover:flex items-center gap-0.5 pr-1">
+                    <button onClick={() => startRename(conv)} className="p-1 text-slate-300 hover:text-slate-500 rounded">
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    <button onClick={() => setDeleteConfirmId(conv.id)} className="p-1 text-slate-300 hover:text-red-500 rounded">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           ))}
         </div>
       </div>
@@ -138,10 +200,10 @@ export default function Assistant() {
             {contextEntity ? (
               <div className="flex items-center gap-1 text-xs text-blue-600">
                 <Building2 className="w-3 h-3" />
-                Contexte: {contextEntity.data.companyName} ({contextEntity.type})
+                Contexte: {contextEntity.data.companyName}
               </div>
             ) : (
-              <p className="text-xs text-slate-400">Prospection, scripts, objections, recherche événements</p>
+              <p className="text-xs text-slate-400">Prospection événementielle · Décideurs · Messages prêts à copier</p>
             )}
           </div>
           <div className="ml-auto flex items-center gap-1.5 text-xs text-green-600 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
@@ -155,15 +217,15 @@ export default function Assistant() {
           {!activeConvId ? (
             <div className="flex flex-col items-center justify-center h-full text-center">
               <Bot className="w-12 h-12 text-slate-200 mb-3" />
-              <p className="text-slate-500 font-medium">Assistant SYNC — avec accès Internet</p>
+              <p className="text-slate-500 font-medium">Assistant SYNC — Prospection événementielle</p>
               <p className="text-sm text-slate-400 mt-1 max-w-sm">
-                Posez n'importe quelle question. Spécialisé prospection B2B événementielle — trouve des cibles, rédige des messages, recherche des événements en temps réel.
+                Recherche d'événements, d'organisations cibles, de décideurs LinkedIn, et rédaction de messages personnalisés prêts à copier.
               </p>
               <div className="mt-4 grid grid-cols-1 gap-2 w-full max-w-sm">
                 {[
                   "Quels événements corporatifs majeurs sont prévus au Québec cette année ?",
-                  "Recherche des entreprises qui organisent des conférences ou galas au Canada",
-                  "Identifie les décideurs clés chez une organisation ciblée pour une prise de contact",
+                  "Trouve des entreprises du secteur assurances qui organisent leur propre conférence",
+                  "Identifie les décideurs LinkedIn chez Desjardins dans les communications",
                 ].map(s => (
                   <button
                     key={s}
@@ -199,9 +261,26 @@ export default function Assistant() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
         <ChatInput onSend={handleSend} disabled={isSending} />
       </div>
+
+      {/* Delete conversation dialog */}
+      <AlertDialog open={!!deleteConfirmId} onOpenChange={() => setDeleteConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer cette conversation ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              La conversation et ses messages seront supprimés définitivement.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex gap-2 justify-end">
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={() => handleDeleteConversation(deleteConfirmId)} className="bg-red-600 hover:bg-red-700">
+              Supprimer
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
