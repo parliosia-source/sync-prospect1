@@ -257,15 +257,19 @@ export default function CampaignDetail() {
               </div>
               <div className="text-xs text-blue-500 mt-1.5 space-y-1">
                 <div>
-                  {(campaign.progressPct || 0) < 20 ? "Initialisation des requêtes…" :
-                   (campaign.progressPct || 0) < 70 ? "Recherche & collecte de résultats…" :
-                   (campaign.progressPct || 0) < 87 ? "Fallbacks élargis…" :
-                   "Finalisation…"}
-                  {" · "}<strong>{counts["Tous"]}</strong>/{campaign.targetCount} prospects trouvés
+                {(campaign.progressPct || 0) < 20 ? "🌐 Initialisation des requêtes…" :
+                 (campaign.progressPct || 0) < 70 ? "🌐 Recherche web & collecte…" :
+                 (campaign.progressPct || 0) < 87 ? "🌐 Fallbacks élargis…" :
+                 (campaign.progressPct || 0) < 95 ? "📚 Complétion KB…" :
+                 "✅ Finalisation…"}
+                {" · "}<strong>{counts["Tous"]}</strong>/{campaign.targetCount} prospects trouvés
                 </div>
                 {campaign.toolUsage?.braveRequestsUsed !== undefined && (
-                  <div className="text-slate-500">
-                    Requêtes Brave : {campaign.toolUsage.braveRequestsUsed} / {campaign.toolUsage.braveMaxRequests || 250}
+                  <div className="text-slate-500 flex gap-3">
+                    <span>Brave : {campaign.toolUsage.braveRequestsUsed} / {campaign.toolUsage.braveMaxRequests || 250} req</span>
+                    {campaign.toolUsage.kbTopupAdded > 0 && (
+                      <span className="text-purple-500">📚 KB : +{campaign.toolUsage.kbTopupAdded}</span>
+                    )}
                   </div>
                 )}
               </div>
