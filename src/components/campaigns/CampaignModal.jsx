@@ -154,6 +154,7 @@ export default function CampaignModal({ open, onClose, onSave }) {
               <Select value={form.companySize} onValueChange={v => setForm(f => ({ ...f, companySize: v }))}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="ALL">Toutes tailles</SelectItem>
                   <SelectItem value="SMALL">Petite (1-50)</SelectItem>
                   <SelectItem value="MID">Moyenne (50-500)</SelectItem>
                   <SelectItem value="LARGE">Grande (500+)</SelectItem>
