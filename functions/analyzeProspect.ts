@@ -83,7 +83,8 @@ Domaine: ${prospect.domain}
 Industrie: ${prospect.industry || "inconnue"}
 Localisation: ${JSON.stringify(prospect.location || {})}
 Type: ${prospect.entityType || ""}
-Snippet: ${prospect.serpSnippet || ""}
+Snippet: ${freshnessSnippet}
+Source: ${prospect.sourceOrigin || "WEB"}
 
 Réponds en JSON:
 {
