@@ -6,6 +6,7 @@ const PROSPECT_COLORS = {
   "QUALIFIÉ": "bg-green-100 text-green-700",
   "REJETÉ": "bg-red-100 text-red-700",
   "EXPORTÉ": "bg-purple-100 text-purple-700",
+  "FAILED_ANALYSIS": "bg-red-100 text-red-600",
 };
 
 const LEAD_COLORS = {
@@ -28,7 +29,7 @@ const CAMPAIGN_COLORS = {
 
 const LABELS = {
   "NOUVEAU": "Nouveau", "ANALYSÉ": "Analysé", "QUALIFIÉ": "Qualifié",
-  "REJETÉ": "Rejeté", "EXPORTÉ": "Exporté",
+  "REJETÉ": "Rejeté", "EXPORTÉ": "Exporté", "FAILED_ANALYSIS": "Échec analyse",
   "NEW": "Nouveau", "CONTACTED": "Contacté", "REPLIED": "A répondu",
   "MEETING": "Meeting", "CLOSED_WON": "Gagné", "CLOSED_LOST": "Perdu",
   "DRAFT": "Brouillon", "RUNNING": "En cours", "COMPLETED": "Terminé", "DONE_PARTIAL": "Incomplet", "CANCELED": "Annulée", "FAILED": "Échoué",
