@@ -258,38 +258,54 @@ const EVENT_TERMS = `("congrès" OR "conférence" OR "gala" OR "assemblée gén�
 const EXCLUDE_AGG = `-Eventbrite -"10times" -"pagesjaunes" -"tourismexpress" -"liste d\'événements" -"calendrier d\'événements" -annuaire`;
 
 function buildQueryVariants(campaign, loc) {
-  const sector = campaign.industrySectors?.slice(0, 2).join(" ") || "";
-  const kws    = campaign.keywords?.slice(0, 3).join(" ") || "";
-  const excl   = `-"agence événementielle" -"event planner" -"planificateur" ${EXCLUDE_AGG}`;
+  // Always inject sector if provided — never drop it
+  const sectors = campaign.industrySectors || [];
+  const sectorStr = sectors.slice(0, 2).join(" ");
+  const kws = campaign.keywords?.slice(0, 3).join(" ") || "";
+  const excl = `-"agence événementielle" -"event planner" -"planificateur" ${EXCLUDE_AGG}`;
 
-  const queries = [
-    // Focused org+event combos
-    `${loc} ${ORG_TERMS} ${EVENT_TERMS} ${sector} ${excl}`.trim(),
-    `${loc} ${sector} ${ORG_TERMS} "congrès annuel" OR "conférence annuelle" ${excl}`.trim(),
-    `${loc} ${sector} ${ORG_TERMS} "assemblée générale annuelle" ${excl}`.trim(),
-    `${loc} ${ORG_TERMS} "gala annuel" OR "soirée annuelle" ${sector} ${excl}`.trim(),
-    `${loc} ${ORG_TERMS} "townhall" OR "formation interne" OR "webdiffusion" ${sector} ${excl}`.trim(),
-    `${loc} ${ORG_TERMS} "colloque" OR "symposium" ${sector} ${excl}`.trim(),
-    // Specific org types
-    `association professionnelle congrès ${loc} ${sector} ${excl}`.trim(),
-    `ordre professionnel assemblée annuelle ${loc} ${sector} ${excl}`.trim(),
+  // Build sector-specific and generic variants
+  const queries = [];
+
+  // If sector specified: sector-first queries (higher priority)
+  if (sectorStr) {
+    queries.push(
+      `${sectorStr} ${loc} ${ORG_TERMS} ${EVENT_TERMS} ${excl}`.trim(),
+      `${sectorStr} ${loc} "congrès annuel" OR "conférence annuelle" ${ORG_TERMS} ${excl}`.trim(),
+      `${sectorStr} ${loc} "assemblée générale annuelle" ${ORG_TERMS} ${excl}`.trim(),
+      `${sectorStr} ${loc} "gala annuel" OR "soirée annuelle" ${ORG_TERMS} ${excl}`.trim(),
+      `association professionnelle ${sectorStr} congrès ${loc} ${excl}`.trim(),
+      `ordre professionnel ${sectorStr} assemblée annuelle ${loc} ${excl}`.trim(),
+      `fédération ${sectorStr} congrès annuel ${loc} ${excl}`.trim(),
+      `syndicat ${sectorStr} assemblée générale ${loc} ${excl}`.trim(),
+      `grande entreprise ${sectorStr} événement annuel ${loc} ${excl}`.trim(),
+      `chambre de commerce ${sectorStr} événement ${loc} membres ${excl}`.trim(),
+    );
+  }
+
+  // Generic loc+org queries (used always, sector appended if available)
+  queries.push(
+    `${loc} ${ORG_TERMS} ${EVENT_TERMS} ${sectorStr} ${excl}`.trim(),
+    `${loc} ${ORG_TERMS} "townhall" OR "formation interne" OR "webdiffusion" ${sectorStr} ${excl}`.trim(),
+    `${loc} ${ORG_TERMS} "colloque" OR "symposium" ${sectorStr} ${excl}`.trim(),
     `chambre de commerce événement corporatif ${loc} membres ${excl}`.trim(),
-    `fédération congrès annuel ${loc} ${sector} ${excl}`.trim(),
-    `syndicat assemblée générale ${loc} ${sector} ${excl}`.trim(),
-    `grande entreprise événement annuel employés ${loc} ${sector} ${excl}`.trim(),
-    ...(kws ? [
-      `"${kws}" ${ORG_TERMS} ${EVENT_TERMS} ${loc} ${excl}`.trim(),
-      `${kws} "conférence annuelle" OR "gala" ${loc} ${excl}`.trim(),
-    ] : []),
-    `(${loc}) (${sector}) ${ORG_TERMS} ${EVENT_TERMS}`.trim(),
-    `site:.ca ${ORG_TERMS} événement corporatif ${loc} ${sector}`.trim(),
-  ];
+    `(${loc}) ${ORG_TERMS} ${EVENT_TERMS} ${sectorStr}`.trim(),
+    `site:.ca ${ORG_TERMS} événement corporatif ${loc} ${sectorStr}`.trim(),
+  );
+
+  // Keyword variants
+  if (kws) {
+    queries.push(
+      `"${kws}" ${sectorStr} ${ORG_TERMS} ${EVENT_TERMS} ${loc} ${excl}`.trim(),
+      `${kws} ${sectorStr} "conférence annuelle" OR "gala" ${loc} ${excl}`.trim(),
+    );
+  }
 
   return queries.filter(q => q.length > 10);
 }
 
 function buildBroadFallbacks(campaign, loc) {
-  const sector = campaign.industrySectors?.slice(0, 2).join(" ") || "";
+  const sector = (campaign.industrySectors || []).slice(0, 2).join(" ");
   return [
     `organisation ${loc} événement annuel réunion ${sector} ${EXCLUDE_AGG}`.trim(),
     `entreprise ${loc} ${sector} conférence annuelle ${EXCLUDE_AGG}`.trim(),
@@ -528,6 +544,7 @@ Deno.serve(async (req) => {
 
   const toolUsage = {
     queries: totalQueriesRun, skippedDuplicates: skippedDupe, filteredNonOrgCount,
+    queriesUsed: queryLog.slice(0, 10).map(q => q.query),
     braveRequestsUsed, braveMaxRequests: BRAVE_MAX_REQUESTS,
     braveRateLimitLimit: braveRLState.limit, braveRateLimitRemaining: braveRLState.remaining,
     braveRateLimitReset: braveRLState.reset, brave429Count: braveRLState.count429,
