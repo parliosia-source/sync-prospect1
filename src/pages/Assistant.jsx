@@ -161,9 +161,9 @@ export default function Assistant() {
               </p>
               <div className="mt-4 grid grid-cols-1 gap-2 w-full max-w-sm">
                 {[
-                  "Quels événements B2B à Montréal dans les 90 prochains jours ?",
-                  "Trouve des entreprises qui annoncent une AGA au Québec",
-                  "Congrès et galas secteur finance Québec 2026",
+                  "Quels événements corporatifs majeurs sont prévus au Québec cette année ?",
+                  "Recherche des entreprises qui organisent des conférences ou galas au Canada",
+                  "Identifie les décideurs clés chez une organisation ciblée pour une prise de contact",
                 ].map(s => (
                   <button
                     key={s}

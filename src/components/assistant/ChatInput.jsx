@@ -3,10 +3,10 @@ import { Send, Lightbulb } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const SUGGESTIONS = [
-  "Quels événements B2B à Montréal dans les 90 prochains jours ?",
-  "Trouve des entreprises qui annoncent une AGA au Québec",
-  "Aide-moi à gérer l'objection 'on a déjà un fournisseur AV'",
-  "Écris un message LinkedIn pour une association professionnelle qui organise un congrès",
+  "Quels événements corporatifs majeurs sont prévus au Québec cette année ?",
+  "Trouve des entreprises au Canada qui organisent régulièrement des conférences ou galas",
+  "Aide-moi à identifier les décideurs clés chez une organisation ciblée",
+  "Rédige un message LinkedIn personnalisé pour un prospect dans l'événementiel",
 ];
 
 export default function ChatInput({ onSend, disabled }) {
