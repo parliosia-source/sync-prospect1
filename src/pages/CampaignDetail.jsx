@@ -121,15 +121,6 @@ export default function CampaignDetail() {
     });
   };
 
-  // Check if analysis heartbeat is stale (> 3 minutes = possibly stuck, but still show bar)
-  const analysisIsStale = campaign?.analysisStatus === "RUNNING" &&
-    campaign?.analysisLastHeartbeatAt &&
-    (Date.now() - new Date(campaign.analysisLastHeartbeatAt).getTime()) > 3 * 60 * 1000;
-
-  // Real counts for display
-  const analysisDone  = campaign?.analysisDoneCount ?? campaign?.countAnalyzed ?? 0;
-  const analysisTotal = campaign?.analysisTargetCount ?? counts["Tous"] ?? 0;
-
   const filtered = activeTab === "Tous" ? prospects : prospects.filter(p => p.status === activeTab);
   const counts = TABS.reduce((acc, t) => {
     acc[t] = t === "Tous" ? prospects.length : prospects.filter(p => p.status === t).length;
