@@ -1,27 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
-const OPENAI_KEY  = Deno.env.get("OPENAI_API_KEY");
 const BRAVE_KEY   = Deno.env.get("BRAVE_API_KEY");
 const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-async function callOpenAI(prompt) {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "Tu es un assistant de prospection B2B pour SYNC Productions (Montréal). Tu réponds UNIQUEMENT en JSON strict, sans texte autour. Tu n'inventes pas de faits. Si une info n'est pas disponible, tu mets null." },
-        { role: "user", content: prompt }
-      ],
-      response_format: { type: "json_object" },
-    })
-  });
-  const data = await res.json();
-  return JSON.parse(data.choices[0].message.content);
-}
 
 // ── Brave rate-limit state ─────────────────────────────────────────────────────
 const braveRLState = { limit: -1, remaining: -1, reset: -1, count429: 0 };
@@ -68,81 +48,64 @@ async function serpSearch(query, start = 0) {
 }
 
 // ── Domain helpers ─────────────────────────────────────────────────────────────
-
-/**
- * Returns the registrable domain (eTLD+1) without www.
- * Handles .qc.ca and .co.uk style 2-part TLDs with a known set.
- */
-const TWO_PART_TLDS = new Set(["qc.ca", "co.ca", "on.ca", "bc.ca", "ab.ca", "mb.ca", "nb.ca", "ns.ca", "nl.ca", "pe.ca", "sk.ca", "co.uk", "org.uk", "me.uk"]);
+const TWO_PART_TLDS = new Set(["qc.ca","co.ca","on.ca","bc.ca","ab.ca","mb.ca","nb.ca","ns.ca","nl.ca","pe.ca","sk.ca","co.uk","org.uk","me.uk"]);
 
 function getRegistrableDomain(hostname) {
   const host = hostname.replace(/^www\./, "");
   const labels = host.split(".");
   if (labels.length >= 3) {
     const twoPartTld = labels.slice(-2).join(".");
-    if (TWO_PART_TLDS.has(twoPartTld)) {
-      return labels.slice(-3).join(".");
-    }
+    if (TWO_PART_TLDS.has(twoPartTld)) return labels.slice(-3).join(".");
   }
   return labels.slice(-2).join(".");
 }
 
-function extractDomain(url) {
-  try {
-    const u = new URL(url.startsWith("http") ? url : "https://" + url);
-    return u.hostname.replace(/^www\./, "");
-  } catch { return null; }
-}
-
-// Subdomains that signal an event microsite (not the org homepage)
-const EVENT_SUBDOMAIN_RE = /^(congres|conference|conferences|event|events|evenement|evenements|agenda|calendrier|programme|program|summit|forum|gala|colloque|symposium|inscription|register)\b/i;
-
-// Titles that look like an event page rather than an org page
-const EVENT_TITLE_RE = /^(congrès|conférence|assemblée générale|assemblée|gala|colloque|symposium|forum|sommet|summit|journée|webinaire|séminaire|atelier)\b/i;
-
-// Article / guide title starters — reject
-const ARTICLE_TITLE_RE = /^(comment |pourquoi |quand |les \d+|top \d+|\d+ façons|guide |conseils |astuces |what is |how to |best |why |when |définition |c'est quoi |qu'est.ce |tout savoir)/i;
-
 // ── Blocked lists ──────────────────────────────────────────────────────────────
-
 const BLOCKED_DOMAINS = new Set([
-  "wikipedia.org", "fr.wikipedia.org", "en.wikipedia.org",
-  "youtube.com", "youtu.be",
-  "facebook.com", "instagram.com", "twitter.com", "x.com",
-  "linkedin.com", "tiktok.com", "pinterest.com", "reddit.com",
-  "eventbrite.com", "eventbrite.ca", "eventbrite.fr",
-  "meetup.com", "ticketmaster.com", "ticketmaster.ca",
-  "glassdoor.com", "indeed.com", "monster.com",
-  "lapresse.ca", "ledevoir.com", "journaldequebec.com", "lesaffaires.com",
-  "radio-canada.ca", "cbc.ca", "tvanouvelles.ca", "24heures.ca",
-  "cision.com", "newswire.ca", "prnewswire.com", "businesswire.com", "globenewswire.com",
-  "google.com", "bing.com", "yahoo.com", "yelp.com", "tripadvisor.com",
-  "wordpress.com", "wix.com", "squarespace.com", "medium.com", "substack.com",
-  "pagesjaunes.ca", "pagesjaunes.com", "yellowpages.ca", "411.ca",
-  "10times.com", "10times.ca", "allevents.in", "eventful.com",
-  "tourismexpress.com", "batimatech.com", "laguide.com",
-  "conferencealerts.com", "allconferences.com", "confex.com",
-  "eventsmontreal.ca", "eventzilla.net",
-  // Publishers / cabinets / génériques
-  "fasken.com", "lavery.ca", "blg.com", "nortonrosefulbright.com",
-  "mccarthy.ca", "stikeman.com", "osler.com", "gowlingwlg.com",
-  "uqam.ca", "hec.ca", "polymtl.ca", "ulaval.ca", "umontreal.ca",
-  "conseiller.ca", "lesechos.fr", "lefigaro.fr", "lemonde.fr",
-  "journaldemontreal.com", "journaldequebec.com",
-  "dropbox.com", "notion.so", "airtable.com", "monday.com", "hubspot.com",
-  "salesforce.com", "mailchimp.com", "eventmanager.com",
+  "wikipedia.org","fr.wikipedia.org","en.wikipedia.org",
+  "youtube.com","youtu.be",
+  "facebook.com","instagram.com","twitter.com","x.com",
+  "linkedin.com","tiktok.com","pinterest.com","reddit.com",
+  "eventbrite.com","eventbrite.ca","eventbrite.fr",
+  "meetup.com","ticketmaster.com","ticketmaster.ca",
+  "glassdoor.com","indeed.com","monster.com",
+  "lapresse.ca","ledevoir.com","journaldequebec.com","lesaffaires.com",
+  "radio-canada.ca","cbc.ca","tvanouvelles.ca","24heures.ca",
+  "cision.com","newswire.ca","prnewswire.com","businesswire.com","globenewswire.com",
+  "google.com","bing.com","yahoo.com","yelp.com","tripadvisor.com",
+  "wordpress.com","wix.com","squarespace.com","medium.com","substack.com",
+  "pagesjaunes.ca","pagesjaunes.com","yellowpages.ca","411.ca",
+  "10times.com","10times.ca","allevents.in","eventful.com",
+  "tourismexpress.com","batimatech.com","laguide.com",
+  "conferencealerts.com","allconferences.com","confex.com",
+  "eventsmontreal.ca","eventzilla.net",
+  "fasken.com","lavery.ca","blg.com","nortonrosefulbright.com",
+  "mccarthy.ca","stikeman.com","osler.com","gowlingwlg.com",
+  "uqam.ca","hec.ca","polymtl.ca","ulaval.ca","umontreal.ca",
+  "conseiller.ca","lesechos.fr","lefigaro.fr","lemonde.fr",
+  "journaldemontreal.com",
+  "dropbox.com","notion.so","airtable.com","monday.com","hubspot.com",
+  "salesforce.com","mailchimp.com","eventmanager.com",
 ]);
 
+// Block URL paths that signal non-org pages (articles, job listings, event directories)
 const BLOCKED_URL_PATHS = /\/blog\/|\/news\/|\/press\/|\/article\/|\/articles\/|\/actualite\/|\/actualites\/|\/magazine\/|\/careers\/|\/carrieres\/|\/jobs\/|\/emplois\/|\/offres-emploi\/|\/salle-de-presse\/|\/communique\/|\/communiques\/|\/medias\/|\/presse\/|\/evenement\/|\/evenements\/|\/events\/|\/event\/|\/agenda\/|\/programme\/|\/inscription\/|\/register\/|\/actualite|\/nouvelles\//i;
 
-// Combined content rejection for non-org pages
+// Reject results that look like directories, software, or non-org pages
 const EXCLUDE_CONTENT_RE = /agence événementielle|event planner|organisateur professionnel|planificateur événement|bureau de congrès|répertoire fournisseurs|annuaire|directory|listing|database|crm\b|logiciel événement|software|saas|plateforme de gestion|template|thème wordpress|plugin|définition|procuration|règlements généraux|politique de gouvernance|guide complet|tout savoir sur|qu'est-ce qu'une/i;
 
-// Must find at least one of these signals
-const EVENT_SIGNAL_RE = /assemblée générale|conférence|gala|événement corporatif|événement d'entreprise|corporate event|meeting annuel|summit|forum|symposium|colloque|webinaire|formation interne|townhall|town.?hall|réunion annuelle|congrès/i;
+// Article/guide title starters — reject
+const ARTICLE_TITLE_RE = /^(comment |pourquoi |quand |les \d+|top \d+|\d+ façons|guide |conseils |astuces |what is |how to |best |why |when |définition |c'est quoi |qu'est.ce |tout savoir)/i;
+
+// Signals that the result is an event page/microsite (not the org itself)
+const EVENT_SUBDOMAIN_RE = /^(congres|conference|conferences|event|events|evenement|evenements|agenda|calendrier|programme|program|summit|forum|gala|colloque|symposium|inscription|register)\b/i;
+const EVENT_TITLE_RE = /^(congrès|conférence|assemblée générale|assemblée|gala|colloque|symposium|forum|sommet|summit|journée|webinaire|séminaire|atelier)\b/i;
+
+// The result must have at least ONE of these signals to be considered a real organization with events
+const ORG_SIGNAL_RE = /\b(association|ordre|fédération|chambre|fondation|syndicat|corporation|entreprise|société|compagnie|inc\b|ltée|s\.a\.|organisme|réseau|conseil|institut|coalition)\b/i;
+const EVENT_SIGNAL_RE = /assemblée générale|conférence|gala|événement corporatif|corporate event|meeting annuel|summit|forum|symposium|colloque|webinaire|formation interne|townhall|town.?hall|réunion annuelle|congrès/i;
 
 // ── Homepage name fetcher ──────────────────────────────────────────────────────
-
 async function fetchOrgName(registrableDomain) {
   try {
     const ctrl = new AbortController();
@@ -154,11 +117,9 @@ async function fetchOrgName(registrableDomain) {
     clearTimeout(timer);
     if (!res.ok) return null;
     const html = await res.text();
-    // Try og:site_name first
     const ogMatch = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i)
       || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:site_name["']/i);
     if (ogMatch) return cleanOrgName(ogMatch[1]);
-    // Fallback: <title>
     const titleMatch = html.match(/<title>([^<]{3,80})<\/title>/i);
     if (titleMatch) return cleanOrgName(titleMatch[1]);
     return null;
@@ -166,17 +127,15 @@ async function fetchOrgName(registrableDomain) {
 }
 
 function cleanOrgName(raw) {
-  // Remove "| something" or "- something" suffix (taglines, location)
   return raw.replace(/\s*[|\-–—]\s*.{0,80}$/, "").replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
 function domainToTitleCase(registrableDomain) {
-  const sld = registrableDomain.split(".")[0]; // e.g. "amvq", "cag-acg"
+  const sld = registrableDomain.split(".")[0];
   return sld.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
 // ── normalizeResult ────────────────────────────────────────────────────────────
-
 async function normalizeResult(r) {
   const url = r.url || r.link;
   if (!url) return null;
@@ -188,43 +147,35 @@ async function normalizeResult(r) {
   const rawHost = parsedUrl.hostname.replace(/^www\./, "");
   const registrableDomain = getRegistrableDomain(rawHost);
 
-  // Block check against registrable domain
   if (BLOCKED_DOMAINS.has(rawHost) || BLOCKED_DOMAINS.has(registrableDomain)) return null;
-
-  // Block URL paths
   if (BLOCKED_URL_PATHS.test(url)) return null;
 
   const rawTitle   = r.title || "";
   const rawSnippet = r.snippet || r.description || "";
   const combined   = (rawTitle + " " + rawSnippet).toLowerCase();
 
-  // Reject non-org / generic / article content
   if (EXCLUDE_CONTENT_RE.test(combined)) return null;
   if (ARTICLE_TITLE_RE.test(rawTitle))   return null;
 
-  // Must have at least one event signal
-  if (!EVENT_SIGNAL_RE.test(combined)) return null;
+  // Must have BOTH an org signal AND an event signal to pass
+  const hasOrgSignal   = ORG_SIGNAL_RE.test(rawTitle + " " + rawSnippet + " " + registrableDomain);
+  const hasEventSignal = EVENT_SIGNAL_RE.test(combined);
+  if (!hasOrgSignal || !hasEventSignal) return null;
 
-  // ── Detect event subdomains → redirect to org root ──
   const firstLabel = rawHost.split(".")[0];
   const isEventSubdomain = (rawHost !== registrableDomain) && EVENT_SUBDOMAIN_RE.test(firstLabel);
 
-  const domain  = registrableDomain;   // always the registrable domain
-  const website = `https://${domain}`; // always root
-  // Keep original URL as sourceUrl so analyst can check the event page
+  const domain    = registrableDomain;
+  const website   = `https://${domain}`;
   const sourceUrl = url;
 
-  // ── Derive company name ──
   let companyName = null;
-
-  // 1) If it's an event subdomain or event-style title → try to fetch real name from homepage
   const needsHomepageFetch = isEventSubdomain || EVENT_TITLE_RE.test(rawTitle) || rawTitle.length < 4;
 
   if (needsHomepageFetch) {
     companyName = await fetchOrgName(domain);
   }
 
-  // 2) Fallback: clean page title (strip event suffix like "Congrès 2025 - Org Name")
   if (!companyName) {
     const cleanedTitle = rawTitle.replace(/\s*[-–—|]\s*(congrès|conférence|gala|assemblée|colloque|forum|événement|event|2024|2025|2026)\b.*/i, "").trim();
     if (cleanedTitle.length >= 3 && !EVENT_TITLE_RE.test(cleanedTitle)) {
@@ -232,10 +183,7 @@ async function normalizeResult(r) {
     }
   }
 
-  // 3) Last resort: domain-derived title case
-  if (!companyName) {
-    companyName = domainToTitleCase(domain);
-  }
+  if (!companyName) companyName = domainToTitleCase(domain);
 
   return {
     normalized: {
@@ -252,73 +200,81 @@ async function normalizeResult(r) {
 }
 
 // ── Query builders ─────────────────────────────────────────────────────────────
-
-const ORG_TERMS = `("association" OR "ordre" OR "fédération" OR "chambre" OR "fondation" OR "organisme" OR "entreprise" OR "syndicat")`;
-const EVENT_TERMS = `("congrès" OR "conférence" OR "gala" OR "assemblée générale" OR "réunion annuelle" OR "sommet")`;
-const EXCLUDE_AGG = `-Eventbrite -"10times" -"pagesjaunes" -"tourismexpress" -"liste d\'événements" -"calendrier d\'événements" -annuaire`;
+// Focus on ORGANIZATIONS that HOST events — not event listing sites
+const EXCL = `-Eventbrite -"10times" -"pagesjaunes" -"tourismexpress" -annuaire -répertoire -"liste d'événements" -"calendrier d'événements" -"agence événementielle" -"event planner" -"planificateur"`;
 
 function buildQueryVariants(campaign, loc) {
-  // Always inject sector if provided — never drop it
-  const sectors = campaign.industrySectors || [];
-  const sectorStr = sectors.slice(0, 2).join(" ");
-  const kws = campaign.keywords?.slice(0, 3).join(" ") || "";
-  const excl = `-"agence événementielle" -"event planner" -"planificateur" ${EXCLUDE_AGG}`;
-
-  // Build sector-specific and generic variants
+  const sectors  = (campaign.industrySectors || []).slice(0, 2);
+  const sectorStr = sectors.join(" ");
+  const kws = (campaign.keywords || []).slice(0, 3).join(" ");
   const queries = [];
 
-  // If sector specified: sector-first queries (higher priority)
+  // ── Sector-specific queries (when sector is specified) ──
   if (sectorStr) {
     queries.push(
-      `${sectorStr} ${loc} ${ORG_TERMS} ${EVENT_TERMS} ${excl}`.trim(),
-      `${sectorStr} ${loc} "congrès annuel" OR "conférence annuelle" ${ORG_TERMS} ${excl}`.trim(),
-      `${sectorStr} ${loc} "assemblée générale annuelle" ${ORG_TERMS} ${excl}`.trim(),
-      `${sectorStr} ${loc} "gala annuel" OR "soirée annuelle" ${ORG_TERMS} ${excl}`.trim(),
-      `association professionnelle ${sectorStr} congrès ${loc} ${excl}`.trim(),
-      `ordre professionnel ${sectorStr} assemblée annuelle ${loc} ${excl}`.trim(),
-      `fédération ${sectorStr} congrès annuel ${loc} ${excl}`.trim(),
-      `syndicat ${sectorStr} assemblée générale ${loc} ${excl}`.trim(),
-      `grande entreprise ${sectorStr} événement annuel ${loc} ${excl}`.trim(),
-      `chambre de commerce ${sectorStr} événement ${loc} membres ${excl}`.trim(),
+      // Associations & federations
+      `association ${sectorStr} ${loc} congrès annuel site web ${EXCL}`,
+      `fédération ${sectorStr} ${loc} assemblée générale annuelle ${EXCL}`,
+      `ordre professionnel ${sectorStr} ${loc} congrès ${EXCL}`,
+      `syndicat ${sectorStr} ${loc} assemblée générale ${EXCL}`,
+      // Corporate
+      `entreprise ${sectorStr} ${loc} conférence annuelle événement corporatif ${EXCL}`,
+      `société ${sectorStr} ${loc} gala annuel OR réunion annuelle ${EXCL}`,
+      `grande entreprise ${sectorStr} ${loc} formation interne townhall ${EXCL}`,
+      // Chambers & councils
+      `chambre de commerce ${sectorStr} ${loc} gala membres ${EXCL}`,
+      `conseil ${sectorStr} ${loc} conférence assemblée ${EXCL}`,
     );
   }
 
-  // Generic loc+org queries (used always, sector appended if available)
+  // ── Generic queries (always included) ──
   queries.push(
-    `${loc} ${ORG_TERMS} ${EVENT_TERMS} ${sectorStr} ${excl}`.trim(),
-    `${loc} ${ORG_TERMS} "townhall" OR "formation interne" OR "webdiffusion" ${sectorStr} ${excl}`.trim(),
-    `${loc} ${ORG_TERMS} "colloque" OR "symposium" ${sectorStr} ${excl}`.trim(),
-    `chambre de commerce événement corporatif ${loc} membres ${excl}`.trim(),
-    `(${loc}) ${ORG_TERMS} ${EVENT_TERMS} ${sectorStr}`.trim(),
-    `site:.ca ${ORG_TERMS} événement corporatif ${loc} ${sectorStr}`.trim(),
+    // Associations
+    `association professionnelle ${loc} congrès annuel site web ${EXCL}`,
+    `fédération ${loc} assemblée générale congrès ${EXCL}`,
+    `ordre professionnel ${loc} assemblée congrès ${EXCL}`,
+    // Corporate events
+    `entreprise ${loc} "événement corporatif" OR "conférence annuelle" OR "gala annuel" ${EXCL}`,
+    `société ${loc} townhall OR "formation interne" OR "réunion annuelle" ${EXCL}`,
+    // Chambers
+    `chambre de commerce ${loc} gala membres conférence ${EXCL}`,
+    `conseil ${loc} "conférence annuelle" OR "assemblée annuelle" ${EXCL}`,
+    // Syndicats & instituts
+    `syndicat ${loc} assemblée générale annuelle ${EXCL}`,
+    `institut ${loc} conférence colloque annuel ${EXCL}`,
+    // Site-specific
+    `site:.ca (association OR fédération OR ordre) ${loc} congrès "événement annuel" ${EXCL}`,
+    `site:.ca entreprise ${loc} gala OR conférence OR "assemblée générale" ${EXCL}`,
+    // Quebec-specific
+    `organisation ${loc} "congrès annuel" OR "assemblée générale" secteur ${sectorStr} ${EXCL}`,
   );
 
-  // Keyword variants
+  // ── Keyword variants ──
   if (kws) {
     queries.push(
-      `"${kws}" ${sectorStr} ${ORG_TERMS} ${EVENT_TERMS} ${loc} ${excl}`.trim(),
-      `${kws} ${sectorStr} "conférence annuelle" OR "gala" ${loc} ${excl}`.trim(),
+      `"${kws}" ${loc} association OR entreprise conférence annuelle ${EXCL}`,
+      `${kws} ${loc} gala OR congrès OR "assemblée générale" ${EXCL}`,
     );
   }
 
-  return queries.filter(q => q.length > 10);
+  // Deduplicate and filter empty
+  return [...new Set(queries)].filter(q => q.length > 10);
 }
 
 function buildBroadFallbacks(campaign, loc) {
   const sector = (campaign.industrySectors || []).slice(0, 2).join(" ");
   return [
-    `organisation ${loc} événement annuel réunion ${sector} ${EXCLUDE_AGG}`.trim(),
-    `entreprise ${loc} ${sector} conférence annuelle ${EXCLUDE_AGG}`.trim(),
-    `association ${loc} ${sector} membres assemblée générale ${EXCLUDE_AGG}`.trim(),
-    `chambres de commerce ${loc} membres entreprises ${EXCLUDE_AGG}`.trim(),
-    `"${loc}" événement corporatif B2B organisateur ${EXCLUDE_AGG}`.trim(),
-    `grande entreprise ${loc} ${sector} site web ${EXCLUDE_AGG}`.trim(),
-    `syndicat association ${loc} ${sector} assemblée annuelle ${EXCLUDE_AGG}`.trim(),
+    `organisation ${loc} "congrès annuel" ${sector} ${EXCL}`,
+    `association ${loc} congrès membres ${sector} ${EXCL}`,
+    `entreprise ${loc} gala annuel conférence ${sector} ${EXCL}`,
+    `fédération ${loc} assemblée annuelle ${sector} ${EXCL}`,
+    `chambre de commerce ${loc} gala membres ${EXCL}`,
+    `syndicat ${loc} assemblée générale ${sector} ${EXCL}`,
+    `ordre ${loc} congrès annuel ${sector} ${EXCL}`,
   ];
 }
 
 // ── Main handler ───────────────────────────────────────────────────────────────
-
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
@@ -337,7 +293,6 @@ Deno.serve(async (req) => {
   const loc    = campaign.locationQuery || "Montréal";
   const target = campaign.targetCount || 50;
 
-  // Fetch AppSettings
   let appSettings = {};
   try {
     const settings = await base44.entities.AppSettings.filter({ settingsId: "global" });
@@ -349,12 +304,10 @@ Deno.serve(async (req) => {
   const BRAVE_MIN_REMAINING = appSettings.braveMinRemainingBeforePause || 2;
   const ENABLE_KB_TOPUP     = appSettings.enableKbTopUp !== false;
 
-  // Collect existing domains for dedup
   const existing = await base44.entities.Prospect.filter({ campaignId });
   const existingDomains = new Set(existing.map(p => p.domain).filter(Boolean));
   let created = existing.length;
 
-  // Load KB entities for dedup
   let allKbEntities = [];
   let kbDomains = new Set();
   try {
@@ -375,7 +328,6 @@ Deno.serve(async (req) => {
 
   const runQuery = async (query, maxPagesOverride) => {
     if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { budgetGuardTriggered = true; return; }
-
     const maxPages = maxPagesOverride ?? Math.min(BRAVE_MAX_PAGES, (target - created) > 50 ? 7 : 5);
 
     for (let page = 0; page < maxPages && created < target && !budgetGuardTriggered; page++) {
@@ -398,7 +350,6 @@ Deno.serve(async (req) => {
 
       for (const r of results) {
         if (created >= target) break;
-        // normalizeResult is now async (homepage fetch)
         const normalized = await normalizeResult(r);
         if (!normalized) { filteredNonOrgCount++; continue; }
 
@@ -409,15 +360,15 @@ Deno.serve(async (req) => {
           campaignId,
           ownerUserId: campaign.ownerUserId,
           companyName: normalized.normalized.companyName,
-          website: normalized.normalized.website,
+          website:     normalized.normalized.website,
           domain,
-          industry: normalized.normalized.industry,
-          location: normalized.normalized.location,
-          entityType: normalized.normalized.entityType,
-          status: "NOUVEAU",
+          industry:    normalized.normalized.industry,
+          location:    normalized.normalized.location,
+          entityType:  normalized.normalized.entityType,
+          status:      "NOUVEAU",
           sourceOrigin: "WEB",
           serpSnippet: r?.snippet || r?.description || "",
-          sourceUrl: sourceUrl || r?.url || r?.link || "",
+          sourceUrl:   sourceUrl || r?.url || r?.link || "",
         });
 
         existingDomains.add(domain);
@@ -431,58 +382,44 @@ Deno.serve(async (req) => {
 
   // Phase 1: main queries
   while (created < target && queryIndex < allQueries.length && !rateLimitHit && !budgetGuardTriggered) {
-    const pct = Math.min(95, Math.round((created / target) * 95));
+    const pct = Math.min(87, Math.round((created / target) * 87));
     await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
     await runQuery(allQueries[queryIndex]);
     queryIndex++;
   }
 
-  // Phase 2: broadened fallbacks if < 60% of target
-  if (created < target * 0.6 && !rateLimitHit && !budgetGuardTriggered) {
-    await base44.entities.Campaign.update(campaignId, { progressPct: Math.min(95, Math.round((created / target) * 95)), countProspects: created });
-    const fallbacks = [
-      `organisation ${loc} événement annuel réunion`,
-      `entreprise ${loc} conférence`,
-      `association ${loc} membres assemblée`,
-      `"${loc}" événements corporatifs B2B`,
-      `chambres de commerce ${loc} membres`,
-    ];
-    for (const q of fallbacks) {
-      if (created >= target || budgetGuardTriggered) break;
-      await runQuery(q, 2);
-    }
-  }
-
-  // Phase 3: broad fallbacks
-  if (created < target && (target - created) >= 10 && !rateLimitHit && !budgetGuardTriggered) {
-    await base44.entities.Campaign.update(campaignId, { progressPct: Math.min(95, Math.round((created / target) * 95)), countProspects: created });
+  // Phase 2: broad fallbacks if < 70% of target
+  if (created < target * 0.7 && !rateLimitHit && !budgetGuardTriggered) {
     const broadFallbacks = buildBroadFallbacks(campaign, loc);
     for (const q of broadFallbacks) {
       if (created >= target || budgetGuardTriggered) break;
-      await runQuery(q, 2);
+      const pct = Math.min(87, Math.round((created / target) * 87));
+      await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
+      await runQuery(q, 3);
     }
   }
 
-  // ── Phase KB_TOPUP ──────────────────────────────────────────────────────────
+  // Phase KB_TOPUP
   let kbTopupAdded = 0, kbTopupSkippedDuplicate = 0, kbTopupCandidates = 0, kbTopupStoppedReason = null;
 
-  const webStopReason = created >= target          ? "TARGET_REACHED"
-    : budgetGuardTriggered                         ? "BUDGET_GUARD"
-    : rateLimitHit                                 ? "RATE_LIMIT"
-    : queryIndex >= allQueries.length              ? "QUERIES_EXHAUSTED"
+  const webStopReason = created >= target         ? "TARGET_REACHED"
+    : budgetGuardTriggered                        ? "BUDGET_GUARD"
+    : rateLimitHit                                ? "RATE_LIMIT"
+    : queryIndex >= allQueries.length             ? "QUERIES_EXHAUSTED"
     : "ERROR";
 
-  if (ENABLE_KB_TOPUP && created < target && ["QUERIES_EXHAUSTED", "RATE_LIMIT", "BUDGET_GUARD"].includes(webStopReason)) {
+  if (ENABLE_KB_TOPUP && created < target && ["QUERIES_EXHAUSTED","RATE_LIMIT","BUDGET_GUARD"].includes(webStopReason)) {
     await base44.entities.Campaign.update(campaignId, { progressPct: 90, countProspects: created });
     const locLower = loc.toLowerCase();
+    const locCity  = locLower.split(",")[0].trim();
 
     const candidates = allKbEntities.filter(e => {
       const domNorm = (e.domain || "").toLowerCase().replace(/^www\./, "");
       if (existingDomains.has(domNorm)) return false;
       if (!e.domain || !e.website) return false;
-      if (locLower && e.hqLocation) {
+      if (locCity && e.hqLocation) {
         const locE = e.hqLocation.toLowerCase();
-        if (!locE.includes("canada") && !locE.includes("ca") && !locE.includes(locLower.split(",")[0].trim())) return false;
+        if (!locE.includes("canada") && !locE.includes(locCity)) return false;
       }
       return true;
     });
@@ -495,18 +432,18 @@ Deno.serve(async (req) => {
 
       await base44.entities.Prospect.create({
         campaignId,
-        ownerUserId: campaign.ownerUserId,
-        companyName: kb.name,
-        website: kb.website || `https://${kb.domain}`,
-        domain: domNorm,
-        industry: kb.entityType || null,
-        location: kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
-        entityType: kb.entityType || "COMPANY",
-        status: "NOUVEAU",
+        ownerUserId:  campaign.ownerUserId,
+        companyName:  kb.name,
+        website:      kb.website || `https://${kb.domain}`,
+        domain:       domNorm,
+        industry:     kb.entityType || null,
+        location:     kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
+        entityType:   kb.entityType || "COMPANY",
+        status:       "NOUVEAU",
         sourceOrigin: "KB_TOPUP",
-        kbEntityId: kb.id,
-        serpSnippet: kb.notes || "",
-        sourceUrl: kb.source || "",
+        kbEntityId:   kb.id,
+        serpSnippet:  kb.notes || "",
+        sourceUrl:    kb.source || "",
       });
 
       existingDomains.add(domNorm);
@@ -516,28 +453,28 @@ Deno.serve(async (req) => {
     if (!kbTopupStoppedReason) kbTopupStoppedReason = created >= target ? "TARGET_REACHED" : "KB_EXHAUSTED";
   }
 
-  // ── Final status ────────────────────────────────────────────────────────────
+  // Final status
   let stopReason;
-  if (created >= target)                                          stopReason = "TARGET_REACHED";
+  if      (created >= target)                                           stopReason = "TARGET_REACHED";
   else if (kbTopupAdded > 0 && kbTopupStoppedReason === "KB_EXHAUSTED") stopReason = "KB_EXHAUSTED";
-  else if (budgetGuardTriggered)                                  stopReason = "BUDGET_GUARD";
-  else if (rateLimitHit)                                          stopReason = "RATE_LIMIT";
-  else if (queryIndex >= allQueries.length)                       stopReason = "QUERIES_EXHAUSTED";
-  else                                                            stopReason = "ERROR";
+  else if (budgetGuardTriggered)                                         stopReason = "BUDGET_GUARD";
+  else if (rateLimitHit)                                                 stopReason = "RATE_LIMIT";
+  else if (queryIndex >= allQueries.length)                              stopReason = "QUERIES_EXHAUSTED";
+  else                                                                   stopReason = "ERROR";
 
   let finalStatus, errorMsg;
   if (created === 0) {
     finalStatus = "FAILED";
-    errorMsg = stopReason === "RATE_LIMIT" ? "Limite de l'API Brave atteinte. Réessayez dans quelques minutes."
-      : stopReason === "BUDGET_GUARD"      ? `Limite de requêtes Brave atteinte (${BRAVE_MAX_REQUESTS} req max).`
+    errorMsg = stopReason === "RATE_LIMIT"   ? "Limite de l'API Brave atteinte. Réessayez dans quelques minutes."
+      : stopReason === "BUDGET_GUARD"        ? `Limite de requêtes Brave atteinte (${BRAVE_MAX_REQUESTS} req max).`
       : "Aucun prospect valide trouvé — vérifiez les clés API Brave/SerpAPI";
   } else if (created < target) {
     finalStatus = "DONE_PARTIAL";
     const kbNote = kbTopupAdded > 0 ? ` + ${kbTopupAdded} via KB` : "";
-    if      (stopReason === "KB_EXHAUSTED")  errorMsg = `Web + KB épuisés: ${created}/${target} prospects (${createdWeb} web${kbNote}).`;
-    else if (stopReason === "BUDGET_GUARD")  errorMsg = `Limite Brave: ${createdWeb} web${kbNote} / ${target}. (${braveRequestsUsed}/${BRAVE_MAX_REQUESTS} req)`;
-    else if (stopReason === "RATE_LIMIT")    errorMsg = `Limite API: ${createdWeb} web${kbNote} / ${target}. Relancez dans quelques minutes.`;
-    else                                     errorMsg = `Terminé: ${createdWeb} web${kbNote} / ${target} prospects.${skippedDupe > 0 ? ` ${skippedDupe} doublons ignorés.` : ""}`;
+    if      (stopReason === "KB_EXHAUSTED")  errorMsg = `Web + KB épuisés : ${created}/${target} (${createdWeb} web${kbNote}).`;
+    else if (stopReason === "BUDGET_GUARD")  errorMsg = `Limite Brave : ${createdWeb} web${kbNote} / ${target}. (${braveRequestsUsed}/${BRAVE_MAX_REQUESTS} req)`;
+    else if (stopReason === "RATE_LIMIT")    errorMsg = `Limite API : ${createdWeb} web${kbNote} / ${target}. Relancez dans quelques minutes.`;
+    else                                     errorMsg = `Terminé : ${createdWeb} web${kbNote} / ${target}.${skippedDupe > 0 ? ` ${skippedDupe} doublons ignorés.` : ""}`;
   } else {
     finalStatus = "COMPLETED";
   }
@@ -566,7 +503,7 @@ Deno.serve(async (req) => {
     payload: {
       created, createdWeb, kbTopupAdded, kbTopupCandidates, target,
       coverage: `${Math.round(created / target * 100)}%`,
-      skippedDuplicates: skippedDupe, queriesRun: totalQueriesRun,
+      skippedDuplicates: skippedDupe, filteredNonOrgCount, queriesRun: totalQueriesRun,
       braveRequestsUsed, braveMaxRequests: BRAVE_MAX_REQUESTS,
       brave429Count: braveRLState.count429, stopReason, webStopReason,
     },
@@ -574,5 +511,5 @@ Deno.serve(async (req) => {
     errorMessage: errorMsg,
   });
 
-  return Response.json({ success: created > 0, created, target, coverage: Math.round(created / target * 100), skippedDuplicates: skippedDupe, stopReason });
+  return Response.json({ success: created > 0, created, target, coverage: Math.round(created / target * 100), skippedDuplicates: skippedDupe, filteredNonOrgCount, stopReason });
 });

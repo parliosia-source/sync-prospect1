@@ -5,7 +5,7 @@ const HUNTER_KEY = Deno.env.get("HUNTER_API_KEY");
 const BRAVE_KEY  = Deno.env.get("BRAVE_API_KEY");
 const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
 
-// ── Brave rate-limit helpers ──────────────────────────────────────────────────
+// ── Brave helpers ──────────────────────────────────────────────────────────────
 const braveRLState = { remaining: -1, reset: -1, count429: 0 };
 
 function parseBraveHeaders(res) {
@@ -73,48 +73,66 @@ async function hunterDomainSearch(domain, company) {
 // ── Decision Maker Discovery ──────────────────────────────────────────────────
 async function findDecisionMakers(companyName, domain) {
   const candidates = [];
+  const seen = new Set();
 
-  // Query 1: LinkedIn /in/ profiles with event/comms roles
-  const q1 = `site:linkedin.com/in ("${companyName}" OR "${domain}") (Directeur OR VP OR "Chef de" OR Responsable OR "Head of") (marketing OR communication OR événement OR event OR communications)`;
-  let results = await braveQuery(q1, 8);
-  if (results.length === 0) results = await serpQuery(q1, 5);
+  // Multiple query strategies to maximize LinkedIn profile hits
+  const queries = [
+    // Most precise: company name + linkedin.com/in + role
+    `site:linkedin.com/in "${companyName}" (Directeur OR Directrice OR VP OR "Vice-Président" OR "Head of" OR Responsable OR "Chef de") (marketing OR communications OR événements OR event OR "relations publiques")`,
+    // Domain-based (for companies where name doesn't match LinkedIn well)
+    `site:linkedin.com/in "${domain}" (Directeur OR VP OR Responsable) (marketing OR communications OR événement)`,
+    // Broader: company name without site filter (captures profiles that mention the company)
+    `"${companyName}" linkedin.com/in (Directeur marketing OR "VP Communications" OR "Responsable événements" OR "Chargé de communications" OR "Gestionnaire événements")`,
+    // English fallback
+    `site:linkedin.com/in "${companyName}" (Director OR Manager OR "Head of") (Marketing OR Communications OR Events)`,
+  ];
 
-  // Query 2: Broader if q1 is sparse
-  if (results.length < 2) {
-    const q2 = `"${companyName}" (Directeur marketing OR "Directeur communications" OR "Responsable événements" OR "VP Communications") LinkedIn`;
-    const r2 = await braveQuery(q2, 5);
-    results = [...results, ...r2];
-  }
-
-  for (const r of results) {
-    const url = r.url || r.link || "";
-    if (!url.includes("linkedin.com/in/")) continue;
-    const title = r.title || "";
-    const snippet = r.description || r.snippet || "";
-
-    // Extract name from title (usually "FirstName LastName - Title | LinkedIn")
-    let fullName = null;
-    const nameMatch = title.match(/^([A-ZÀ-ÿ][a-zà-ÿ'-]+(?: [A-ZÀ-ÿ][a-zà-ÿ'-]+)+)/);
-    if (nameMatch) fullName = nameMatch[1];
-
-    // Extract role from title or snippet
-    const roleMatch = title.match(/[-–|]\s*([^|–\-]{5,60})(?:\s*[-–|]|$)/);
-    const role = roleMatch ? roleMatch[1].trim() : snippet.slice(0, 80);
-
-    if (url && !candidates.find(c => c.linkedinUrl === url)) {
-      candidates.push({ fullName, title: role, linkedinUrl: url, sourceUrl: url, confidence: fullName ? 0.8 : 0.5 });
-    }
+  for (const q of queries) {
     if (candidates.length >= 5) break;
+    let results = await braveQuery(q, 8);
+    if (results.length === 0) results = await serpQuery(q, 5);
+
+    for (const r of results) {
+      if (candidates.length >= 5) break;
+      const url = r.url || r.link || "";
+      if (!url.includes("linkedin.com/in/")) continue;
+
+      // Normalize URL: strip query params, trailing slashes, and language variants
+      const cleanUrl = url.split("?")[0].replace(/\/$/, "").replace(/\/[a-z]{2}_[A-Z]{2}$/, "");
+      if (seen.has(cleanUrl)) continue;
+      seen.add(cleanUrl);
+
+      const title   = r.title   || "";
+      const snippet = r.description || r.snippet || "";
+
+      // Extract full name: LinkedIn titles are usually "Firstname Lastname - Role | LinkedIn"
+      const nameMatch = title.match(/^([A-ZÀ-ÿ][a-zà-ÿ'-]+(?: [A-ZÀ-ÿ][a-zà-ÿ'-]+){1,3})\s*[-–|]/);
+      const fullName  = nameMatch ? nameMatch[1].trim() : null;
+
+      // Extract role
+      const roleMatch = title.match(/[-–|]\s*([^|–\-]{5,80})(?:\s*[-–|]|$)/);
+      const role = roleMatch ? roleMatch[1].trim() : (snippet.slice(0, 100) || "");
+
+      candidates.push({
+        fullName,
+        title: role,
+        linkedinUrl: cleanUrl,
+        sourceUrl: cleanUrl,
+        confidence: fullName ? 0.85 : 0.5,
+      });
+    }
   }
 
-  // Score by role relevance
-  const PRIORITY_ROLES = /directeur|directrice|vp |vice.pr[eé]|chef|head of|responsable|manager|chargé/i;
-  const EVENT_ROLES = /marketing|communication|événement|event|expérience|brand|relations/i;
+  // Score and sort by role relevance
+  const PRIORITY = /directeur|directrice|vp |vice.pr[eé]|chef|head of|responsable|manager|gestionnaire|chargé/i;
+  const EVENT    = /marketing|communication|événement|event|expérience|brand|relations|public/i;
 
   candidates.sort((a, b) => {
-    const aScore = (PRIORITY_ROLES.test(a.title || "") ? 2 : 0) + (EVENT_ROLES.test(a.title || "") ? 1 : 0) + (a.fullName ? 1 : 0);
-    const bScore = (PRIORITY_ROLES.test(b.title || "") ? 2 : 0) + (EVENT_ROLES.test(b.title || "") ? 1 : 0) + (b.fullName ? 1 : 0);
-    return bScore - aScore;
+    const score = (x) =>
+      (PRIORITY.test(x.title || "") ? 3 : 0) +
+      (EVENT.test(x.title    || "") ? 2 : 0) +
+      (x.fullName                   ? 1 : 0);
+    return score(b) - score(a);
   });
 
   return candidates.slice(0, 3);
@@ -139,7 +157,7 @@ Deno.serve(async (req) => {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // 0. KB freshness snippet
+  // KB freshness snippet
   let snippetToUse = prospect.serpSnippet || "";
   let freshnessUsed = false;
   if (prospect.sourceOrigin === "KB_TOPUP" && prospect.domain && freshnessEnabled) {
@@ -147,7 +165,7 @@ Deno.serve(async (req) => {
     if (liveSnippet) { snippetToUse = liveSnippet; freshnessUsed = true; }
   }
 
-  // 1. AI analysis
+  // AI analysis
   const analysis = await callOpenAI([
     {
       role: "system",
@@ -183,10 +201,10 @@ Réponds en JSON:
     }
   ]);
 
-  // 2. Decision maker discovery (LinkedIn)
+  // Decision maker discovery
   const decisionMakers = await findDecisionMakers(prospect.companyName, prospect.domain);
 
-  // 3. Hunter contacts
+  // Hunter contacts
   let hunterContacts = [];
   let hunterError = null;
   try {
@@ -198,29 +216,26 @@ Réponds en JSON:
     }
   } catch (e) { hunterError = e.message; }
 
-  // 4. Create contacts — merge LinkedIn DMs with Hunter data
+  // Save contacts — merge LinkedIn DMs with Hunter
   const savedContacts = [];
 
-  // 4a. Hunter contacts (with email)
   for (const hc of hunterContacts) {
     const existing = await base44.entities.Contact.filter({ prospectId, email: hc.value });
-    // Try to match with a LinkedIn DM
     const linkedinDM = decisionMakers.find(dm =>
       dm.fullName && hc.first_name && hc.last_name &&
       dm.fullName.toLowerCase().includes(hc.first_name.toLowerCase()) &&
       dm.fullName.toLowerCase().includes(hc.last_name.toLowerCase())
     );
     const linkedinUrl = hc.linkedin || linkedinDM?.linkedinUrl || "";
-
     if (existing.length === 0) {
       const c = await base44.entities.Contact.create({
         prospectId,
-        ownerUserId: prospect.ownerUserId,
-        firstName: hc.first_name || "",
-        lastName: hc.last_name || "",
-        fullName: `${hc.first_name || ""} ${hc.last_name || ""}`.trim(),
-        title: hc.position || "",
-        email: hc.value,
+        ownerUserId:     prospect.ownerUserId,
+        firstName:       hc.first_name || "",
+        lastName:        hc.last_name  || "",
+        fullName:        `${hc.first_name || ""} ${hc.last_name || ""}`.trim(),
+        title:           hc.position   || "",
+        email:           hc.value,
         emailConfidence: hc.confidence,
         linkedinUrl,
         hasEmail: true,
@@ -230,67 +245,67 @@ Réponds en JSON:
     }
   }
 
-  // 4b. LinkedIn DMs not matched to Hunter
+  // LinkedIn-only DMs (not matched to Hunter)
   for (const dm of decisionMakers) {
+    if (!dm.linkedinUrl) continue;
     const alreadySaved = dm.fullName && savedContacts.some(c =>
-      dm.fullName && c.fullName && c.fullName.toLowerCase().includes(dm.fullName.split(" ")[0]?.toLowerCase())
+      c.fullName && dm.fullName && c.fullName.toLowerCase().includes(dm.fullName.split(" ")[0]?.toLowerCase())
     );
     if (alreadySaved) continue;
-
     const existing = await base44.entities.Contact.filter({ prospectId, linkedinUrl: dm.linkedinUrl }).catch(() => []);
     if (existing.length === 0) {
       await base44.entities.Contact.create({
         prospectId,
-        ownerUserId: prospect.ownerUserId,
-        fullName: dm.fullName || "",
-        title: dm.title || "",
-        linkedinUrl: dm.linkedinUrl || "",
-        hasEmail: false,
-        source: "SERP",
+        ownerUserId:    prospect.ownerUserId,
+        fullName:       dm.fullName  || "",
+        title:          dm.title     || "",
+        linkedinUrl:    dm.linkedinUrl,
+        hasEmail:       false,
+        source:         "SERP",
         contactPageUrl: dm.sourceUrl || "",
       });
     }
   }
 
-  // 4c. Stub contacts from AI titles (if no contacts at all)
+  // Stub contacts from AI titles (last resort — no LinkedIn or Hunter found)
   if (hunterContacts.length === 0 && decisionMakers.length === 0 && analysis.decisionMakerTitles?.length > 0) {
     for (const title of analysis.decisionMakerTitles.slice(0, 2)) {
       const existing = await base44.entities.Contact.filter({ prospectId, title });
       if (existing.length === 0) {
         await base44.entities.Contact.create({
           prospectId,
-          ownerUserId: prospect.ownerUserId,
+          ownerUserId:    prospect.ownerUserId,
           title,
-          hasEmail: false,
+          hasEmail:       false,
           contactPageUrl: `https://${prospect.domain}/contact`,
-          source: "SERP",
+          source:         "SERP",
         });
       }
     }
   }
 
-  // 5. Update prospect
+  // Update prospect
   await base44.entities.Prospect.update(prospectId, {
-    status: "ANALYSÉ",
-    relevanceScore: analysis.relevanceScore,
-    segment: analysis.segment,
-    relevanceReasons: analysis.relevanceReasons,
-    opportunities: analysis.opportunities,
-    painPoints: analysis.painPoints,
-    eventTypes: analysis.eventTypes,
+    status:              "ANALYSÉ",
+    relevanceScore:      analysis.relevanceScore,
+    segment:             analysis.segment,
+    relevanceReasons:    analysis.relevanceReasons,
+    opportunities:       analysis.opportunities,
+    painPoints:          analysis.painPoints,
+    eventTypes:          analysis.eventTypes,
     recommendedApproach: analysis.recommendedApproach,
-    analysisRaw: analysis,
-    analysisError: null,
-    analysisErrorAt: null,
+    analysisRaw:         analysis,
+    analysisError:       null,
+    analysisErrorAt:     null,
   });
 
   await base44.entities.ActivityLog.create({
     ownerUserId: user.email,
-    actionType: "ANALYZE_PROSPECT",
-    entityType: "Prospect",
-    entityId: prospectId,
-    payload: { relevanceScore: analysis.relevanceScore, segment: analysis.segment, freshnessUsed, hunterError, decisionMakersFound: decisionMakers.length },
-    status: "SUCCESS",
+    actionType:  "ANALYZE_PROSPECT",
+    entityType:  "Prospect",
+    entityId:    prospectId,
+    payload:     { relevanceScore: analysis.relevanceScore, segment: analysis.segment, freshnessUsed, hunterError, decisionMakersFound: decisionMakers.length },
+    status:      "SUCCESS",
   });
 
   return Response.json({ success: true, analysis, hunterError, freshnessUsed, decisionMakersFound: decisionMakers.length });
