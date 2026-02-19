@@ -403,6 +403,8 @@ Deno.serve(async (req) => {
   let stopReason;
   if (created >= target) {
     stopReason = "TARGET_REACHED";
+  } else if (ENABLE_KB_TOPUP && kbTopupAdded > 0 && created < target) {
+    stopReason = "KB_EXHAUSTED";
   } else if (budgetGuardTriggered) {
     stopReason = "BUDGET_GUARD";
   } else if (rateLimitHit) {
