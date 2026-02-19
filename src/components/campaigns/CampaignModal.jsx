@@ -20,7 +20,7 @@ const LOCATIONS = [
 
 export default function CampaignModal({ open, onClose, onSave }) {
   const [form, setForm] = useState({
-    name: "", targetCount: 50, industrySectors: [], companySize: "MID",
+    name: "", targetCount: 50, industrySectors: [], companySize: "ALL",
     locationMode: "CITY", locationQuery: "Montréal, QC", locationKey: "MONTREAL", keywords: [],
     customSector: "",
   });
