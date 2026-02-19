@@ -232,23 +232,30 @@ Deno.serve(async (req) => {
   for (let i = 0; i < prospects.length; i += BATCH) {
     const batch = prospects.slice(i, i + BATCH);
 
-    // Process batch in parallel, each with isolated error handling
-    await Promise.allSettled(batch.map(async (prospect) => {
+    // Process batch in parallel — each promise RETURNS a result, no shared mutable state
+    const settled = await Promise.allSettled(batch.map(async (prospect) => {
       try {
         await analyzeProspect(prospect, base44);
-        analyzed++;
+        return { success: true };
       } catch (e) {
-        failed++;
-        console.error(`Failed prospect ${prospect.id}:`, e.message);
+        const errMsg = (e.message || "Erreur inconnue").slice(0, 500);
+        console.error(`Failed prospect ${prospect.id}:`, errMsg);
         try {
           await base44.entities.Prospect.update(prospect.id, {
             status: "FAILED_ANALYSIS",
-            analysisError: (e.message || "Erreur inconnue").slice(0, 500),
+            analysisError: errMsg,
             analysisErrorAt: new Date().toISOString(),
           });
         } catch (_) {}
+        return { success: false };
       }
     }));
+
+    // Count from settled results — no race condition
+    const batchAnalyzed = settled.filter(r => r.value?.success === true).length;
+    const batchFailed = settled.filter(r => r.value?.success === false).length;
+    analyzed += batchAnalyzed;
+    failed += batchFailed;
 
     // Heartbeat after each batch (never write 100 until done)
     const pct = Math.min(Math.round(((i + batch.length) / total) * 100), 99);
