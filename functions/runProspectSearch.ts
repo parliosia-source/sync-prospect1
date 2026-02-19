@@ -427,12 +427,15 @@ Deno.serve(async (req) => {
       : "Aucun prospect valide trouvé — vérifiez les clés API Brave/SerpAPI";
   } else if (created < target) {
     finalStatus = "DONE_PARTIAL";
-    if (stopReason === "BUDGET_GUARD") {
-      errorMsg = `Limite de requêtes Brave atteinte: ${created}/${target} prospects trouvés. ${ENABLE_KB_TOPUP ? "KB_TOPUP en attente..." : "Augmentez la limite pour continuer."} (Requêtes: ${braveRequestsUsed}/${BRAVE_MAX_REQUESTS})`;
+    const kbNote = kbTopupAdded > 0 ? ` + ${kbTopupAdded} via KB.` : "";
+    if (stopReason === "KB_EXHAUSTED") {
+      errorMsg = `Web + KB épuisés: ${created}/${target} prospects (${createdWeb} web${kbNote}). KB entièrement parcourue pour ces critères.`;
+    } else if (stopReason === "BUDGET_GUARD") {
+      errorMsg = `Limite Brave atteinte: ${createdWeb} web${kbNote} / ${target}. (Requêtes: ${braveRequestsUsed}/${BRAVE_MAX_REQUESTS})`;
     } else if (stopReason === "RATE_LIMIT") {
-      errorMsg = `Recherche interrompue par limite API: ${created}/${target} prospects trouvés. Relancez dans quelques minutes. (Requêtes: ${braveRequestsUsed})`;
+      errorMsg = `Limite API: ${createdWeb} web${kbNote} / ${target}. Relancez dans quelques minutes. (Requêtes: ${braveRequestsUsed})`;
     } else {
-      errorMsg = `Recherche terminée: ${created}/${target} prospects uniques trouvés (requêtes épuisées ou déduplication). ${skippedDupe > 0 ? `${skippedDupe} doublons ignorés.` : ""} (Requêtes: ${braveRequestsUsed})`.trim();
+      errorMsg = `Terminé: ${createdWeb} web${kbNote} / ${target} prospects. ${skippedDupe > 0 ? `${skippedDupe} doublons ignorés.` : ""} (Requêtes: ${braveRequestsUsed})`.trim();
     }
   } else {
     finalStatus = "COMPLETED";
