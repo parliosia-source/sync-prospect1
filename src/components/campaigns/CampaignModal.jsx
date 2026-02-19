@@ -109,7 +109,7 @@ export default function CampaignModal({ open, onClose, onSave }) {
 
           {/* Sectors (presets) */}
           <div>
-            <Label className="mb-2 block">Secteur d'activité</Label>
+            <Label className="mb-2 block">Secteur d'activité <span className="text-slate-400 font-normal text-xs">(optionnel — tous secteurs si aucun sélectionné)</span></Label>
             <div className="flex flex-wrap gap-2 mb-2">
               {SECTORS.map(s => (
                 <button
