@@ -88,20 +88,15 @@ const BLOCKED_DOMAINS = new Set([
   "salesforce.com","mailchimp.com","eventmanager.com",
 ]);
 
-// Block URL paths that signal non-org pages (articles, job listings, event directories)
 const BLOCKED_URL_PATHS = /\/blog\/|\/news\/|\/press\/|\/article\/|\/articles\/|\/actualite\/|\/actualites\/|\/magazine\/|\/careers\/|\/carrieres\/|\/jobs\/|\/emplois\/|\/offres-emploi\/|\/salle-de-presse\/|\/communique\/|\/communiques\/|\/medias\/|\/presse\/|\/evenement\/|\/evenements\/|\/events\/|\/event\/|\/agenda\/|\/programme\/|\/inscription\/|\/register\/|\/actualite|\/nouvelles\//i;
 
-// Reject results that look like directories, software, or non-org pages
 const EXCLUDE_CONTENT_RE = /agence événementielle|event planner|organisateur professionnel|planificateur événement|bureau de congrès|répertoire fournisseurs|annuaire|directory|listing|database|crm\b|logiciel événement|software|saas|plateforme de gestion|template|thème wordpress|plugin|définition|procuration|règlements généraux|politique de gouvernance|guide complet|tout savoir sur|qu'est-ce qu'une/i;
 
-// Article/guide title starters — reject
 const ARTICLE_TITLE_RE = /^(comment |pourquoi |quand |les \d+|top \d+|\d+ façons|guide |conseils |astuces |what is |how to |best |why |when |définition |c'est quoi |qu'est.ce |tout savoir)/i;
 
-// Signals that the result is an event page/microsite (not the org itself)
 const EVENT_SUBDOMAIN_RE = /^(congres|conference|conferences|event|events|evenement|evenements|agenda|calendrier|programme|program|summit|forum|gala|colloque|symposium|inscription|register)\b/i;
 const EVENT_TITLE_RE = /^(congrès|conférence|assemblée générale|assemblée|gala|colloque|symposium|forum|sommet|summit|journée|webinaire|séminaire|atelier)\b/i;
 
-// The result must have at least ONE of these signals to be considered a real organization with events
 const ORG_SIGNAL_RE = /\b(association|ordre|fédération|chambre|fondation|syndicat|corporation|entreprise|société|compagnie|inc\b|ltée|s\.a\.|organisme|réseau|conseil|institut|coalition)\b/i;
 const EVENT_SIGNAL_RE = /assemblée générale|conférence|gala|événement corporatif|corporate event|meeting annuel|summit|forum|symposium|colloque|webinaire|formation interne|townhall|town.?hall|réunion annuelle|congrès/i;
 
@@ -130,11 +125,6 @@ function cleanOrgName(raw) {
   return raw.replace(/\s*[|\-–—]\s*.{0,80}$/, "").replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
-function domainToTitleCase(registrableDomain) {
-  const sld = registrableDomain.split(".")[0];
-  return sld.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-}
-
 // ── normalizeResult ────────────────────────────────────────────────────────────
 async function normalizeResult(r) {
   const url = r.url || r.link;
@@ -157,7 +147,6 @@ async function normalizeResult(r) {
   if (EXCLUDE_CONTENT_RE.test(combined)) return null;
   if (ARTICLE_TITLE_RE.test(rawTitle))   return null;
 
-  // Must have BOTH an org signal AND an event signal to pass
   const hasOrgSignal   = ORG_SIGNAL_RE.test(rawTitle + " " + rawSnippet + " " + registrableDomain);
   const hasEventSignal = EVENT_SIGNAL_RE.test(combined);
   if (!hasOrgSignal || !hasEventSignal) return null;
@@ -177,13 +166,21 @@ async function normalizeResult(r) {
   }
 
   if (!companyName) {
-    const cleanedTitle = rawTitle.replace(/\s*[-–—|]\s*(congrès|conférence|gala|assemblée|colloque|forum|événement|event|2024|2025|2026)\b.*/i, "").trim();
+    const cleanedTitle = rawTitle
+      .replace(/\s*[-–—|]\s*(congrès|conférence|gala|assemblée|colloque|forum|événement|event|2024|2025|2026)\b.*/i, "")
+      .trim();
     if (cleanedTitle.length >= 3 && !EVENT_TITLE_RE.test(cleanedTitle)) {
       companyName = cleanedTitle.slice(0, 80);
     }
   }
 
-  if (!companyName) companyName = domainToTitleCase(domain);
+  // Always try homepage fetch as last resort before giving up
+  if (!companyName) {
+    companyName = await fetchOrgName(domain);
+  }
+
+  // Reject if we still can't determine a real name
+  if (!companyName) return null;
 
   return {
     normalized: {
@@ -200,7 +197,6 @@ async function normalizeResult(r) {
 }
 
 // ── Query builders ─────────────────────────────────────────────────────────────
-// Focus on ORGANIZATIONS that HOST events — not event listing sites
 const EXCL = `-Eventbrite -"10times" -"pagesjaunes" -"tourismexpress" -annuaire -répertoire -"liste d'événements" -"calendrier d'événements" -"agence événementielle" -"event planner" -"planificateur"`;
 
 function buildQueryVariants(campaign, loc) {
@@ -209,47 +205,35 @@ function buildQueryVariants(campaign, loc) {
   const kws = (campaign.keywords || []).slice(0, 3).join(" ");
   const queries = [];
 
-  // ── Sector-specific queries (when sector is specified) ──
   if (sectorStr) {
     queries.push(
-      // Associations & federations
       `association ${sectorStr} ${loc} congrès annuel site web ${EXCL}`,
       `fédération ${sectorStr} ${loc} assemblée générale annuelle ${EXCL}`,
       `ordre professionnel ${sectorStr} ${loc} congrès ${EXCL}`,
       `syndicat ${sectorStr} ${loc} assemblée générale ${EXCL}`,
-      // Corporate
       `entreprise ${sectorStr} ${loc} conférence annuelle événement corporatif ${EXCL}`,
       `société ${sectorStr} ${loc} gala annuel OR réunion annuelle ${EXCL}`,
       `grande entreprise ${sectorStr} ${loc} formation interne townhall ${EXCL}`,
-      // Chambers & councils
       `chambre de commerce ${sectorStr} ${loc} gala membres ${EXCL}`,
       `conseil ${sectorStr} ${loc} conférence assemblée ${EXCL}`,
     );
   }
 
-  // ── Generic queries (always included) ──
   queries.push(
-    // Associations
     `association professionnelle ${loc} congrès annuel site web ${EXCL}`,
     `fédération ${loc} assemblée générale congrès ${EXCL}`,
     `ordre professionnel ${loc} assemblée congrès ${EXCL}`,
-    // Corporate events
     `entreprise ${loc} "événement corporatif" OR "conférence annuelle" OR "gala annuel" ${EXCL}`,
     `société ${loc} townhall OR "formation interne" OR "réunion annuelle" ${EXCL}`,
-    // Chambers
     `chambre de commerce ${loc} gala membres conférence ${EXCL}`,
     `conseil ${loc} "conférence annuelle" OR "assemblée annuelle" ${EXCL}`,
-    // Syndicats & instituts
     `syndicat ${loc} assemblée générale annuelle ${EXCL}`,
     `institut ${loc} conférence colloque annuel ${EXCL}`,
-    // Site-specific
     `site:.ca (association OR fédération OR ordre) ${loc} congrès "événement annuel" ${EXCL}`,
     `site:.ca entreprise ${loc} gala OR conférence OR "assemblée générale" ${EXCL}`,
-    // Quebec-specific
     `organisation ${loc} "congrès annuel" OR "assemblée générale" secteur ${sectorStr} ${EXCL}`,
   );
 
-  // ── Keyword variants ──
   if (kws) {
     queries.push(
       `"${kws}" ${loc} association OR entreprise conférence annuelle ${EXCL}`,
@@ -257,7 +241,6 @@ function buildQueryVariants(campaign, loc) {
     );
   }
 
-  // Deduplicate and filter empty
   return [...new Set(queries)].filter(q => q.length > 10);
 }
 
