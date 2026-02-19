@@ -31,6 +31,7 @@ export default function CampaignDetail() {
   const [cancelDialog, setCancelDialog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [deleteProspects, setDeleteProspects] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const pollRef = useRef(null);
 
@@ -58,7 +59,7 @@ export default function CampaignDetail() {
   const loadAll = async () => {
     const [camp, prsp] = await Promise.all([
       base44.entities.Campaign.filter({ id: campaignId }).then(r => r[0]),
-      base44.entities.Prospect.filter({ campaignId }, "-created_date", 200),
+      base44.entities.Prospect.filter({ campaignId }, "-relevanceScore,-created_date", 200),
     ]);
     setCampaign(camp);
     setProspects(prsp);
@@ -74,8 +75,9 @@ export default function CampaignDetail() {
 
   const handleReLaunch = async () => {
     await base44.entities.Campaign.update(campaignId, { status: "RUNNING", progressPct: 0, errorMessage: null });
-    base44.functions.invoke("runProspectSearch", { campaignId });
-    await loadAll();
+    // Immediately update local state so progress bar appears
+    setCampaign(c => ({ ...c, status: "RUNNING", progressPct: 0, errorMessage: null }));
+    base44.functions.invoke("runProspectSearch", { campaignId }).finally(() => loadAll());
   };
 
   const handleCancel = async () => {
@@ -89,11 +91,18 @@ export default function CampaignDetail() {
     window.location.href = createPageUrl("Campaigns");
   };
 
-  const handleAnalyzeAll = async () => {
+  const handleAnalyzeAll = (prospectIds) => {
+    // Immediately show RUNNING state — no await
+    setCampaign(c => ({ ...c, analysisStatus: "RUNNING", analysisProgressPct: 0 }));
     setIsAnalyzingAll(true);
-    await base44.functions.invoke("analyzeCampaignProspects", { campaignId });
-    setIsAnalyzingAll(false);
-    await loadAll();
+    setSelectedIds(new Set());
+    base44.functions.invoke("analyzeCampaignProspects", {
+      campaignId,
+      ...(prospectIds && prospectIds.length > 0 ? { prospectIds } : {}),
+    }).finally(() => {
+      setIsAnalyzingAll(false);
+      loadAll();
+    });
   };
 
   // Check if analysis heartbeat is stale (> 2 minutes = stuck)
@@ -106,6 +115,7 @@ export default function CampaignDetail() {
     acc[t] = t === "Tous" ? prospects.length : prospects.filter(p => p.status === t).length;
     return acc;
   }, {});
+  const failedCount = prospects.filter(p => p.status === "FAILED_ANALYSIS").length;
 
   if (!campaignId) return <div className="p-6 text-slate-500">ID campagne manquant</div>;
 
@@ -134,14 +144,25 @@ export default function CampaignDetail() {
               </div>
             </div>
             <div className="flex gap-2">
-              {counts["NOUVEAU"] > 0 && campaign.status !== "RUNNING" && campaign.analysisStatus !== "RUNNING" && (
-                <Button variant="outline" onClick={handleAnalyzeAll} disabled={isAnalyzingAll} className="gap-2">
+              {failedCount > 0 && campaign.analysisStatus !== "RUNNING" && (
+                <Button variant="outline" size="sm" onClick={() => handleAnalyzeAll(prospects.filter(p => p.status === "FAILED_ANALYSIS").map(p => p.id))} disabled={isAnalyzingAll} className="gap-1.5 border-red-200 text-red-600 hover:bg-red-50 text-xs h-8">
+                  <RefreshCw className="w-3 h-3" />
+                  Reprendre ({failedCount} échecs)
+                </Button>
+              )}
+              {(counts["NOUVEAU"] > 0 || selectedIds.size > 0) && campaign.status !== "RUNNING" && campaign.analysisStatus !== "RUNNING" && (
+                <Button variant="outline" onClick={() => selectedIds.size > 0 ? handleAnalyzeAll([...selectedIds]) : handleAnalyzeAll()} disabled={isAnalyzingAll} className="gap-2">
                   {isAnalyzingAll ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4 text-blue-500" />}
-                  {isAnalyzingAll ? "Lancement…" : `Analyser tous (${counts["NOUVEAU"]})`}
+                  {isAnalyzingAll ? "Lancement…" : selectedIds.size > 0 ? `Analyser la sélection (${selectedIds.size})` : `Analyser tous les NOUVEAU (${counts["NOUVEAU"]})`}
+                </Button>
+              )}
+              {selectedIds.size > 0 && (
+                <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())} className="text-slate-400 hover:text-slate-600 text-xs px-2 h-8">
+                  ✕ Sélection
                 </Button>
               )}
               {analysisIsStale && (
-                <Button variant="outline" onClick={handleAnalyzeAll} className="gap-2 border-orange-300 text-orange-700 hover:bg-orange-50">
+                <Button variant="outline" onClick={() => handleAnalyzeAll()} className="gap-2 border-orange-300 text-orange-700 hover:bg-orange-50">
                   <RefreshCw className="w-4 h-4" />
                   Reprendre l'analyse
                 </Button>
@@ -299,6 +320,17 @@ export default function CampaignDetail() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b">
               <tr>
+                <th className="px-3 py-2.5 w-8">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 cursor-pointer"
+                    checked={filtered.length > 0 && filtered.every(p => selectedIds.has(p.id))}
+                    onChange={e => {
+                      if (e.target.checked) setSelectedIds(new Set(filtered.map(p => p.id)));
+                      else setSelectedIds(new Set());
+                    }}
+                  />
+                </th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Entreprise</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Industrie</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Statut</th>
@@ -310,7 +342,20 @@ export default function CampaignDetail() {
               {filtered.map(p => {
                 const isAnalyzing = analyzingIds.has(p.id);
                 return (
-                  <tr key={p.id} className="hover:bg-slate-50">
+                  <tr key={p.id} className={`hover:bg-slate-50 ${selectedIds.has(p.id) ? "bg-blue-50" : ""}`}>
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 cursor-pointer"
+                        checked={selectedIds.has(p.id)}
+                        onChange={() => setSelectedIds(prev => {
+                          const next = new Set(prev);
+                          if (next.has(p.id)) next.delete(p.id);
+                          else next.add(p.id);
+                          return next;
+                        })}
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <div className="font-medium text-slate-800">{p.companyName}</div>
                       <a href={p.website} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}

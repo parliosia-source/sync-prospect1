@@ -106,7 +106,7 @@ Réponds en JSON:
     }
   ]);
 
-  // 2. Hunter contacts
+  // 2. Hunter contacts (isolated — never crashes the prospect)
   let hunterContacts = [];
   try {
     const hr = await hunterDomainSearch(prospect.domain, prospect.companyName);
@@ -117,49 +117,52 @@ Réponds en JSON:
 
   // 3. Create contacts + enrich LinkedIn
   for (const hc of hunterContacts) {
-    const existing = await base44.entities.Contact.filter({ prospectId: prospect.id, email: hc.value });
-    let contactId = existing[0]?.id;
-    const linkedinUrl = hc.linkedin || await findLinkedInUrl(hc.first_name, hc.last_name, prospect.companyName);
+    try {
+      const existing = await base44.entities.Contact.filter({ prospectId: prospect.id, email: hc.value });
+      let contactId = existing[0]?.id;
+      const linkedinUrl = hc.linkedin || await findLinkedInUrl(hc.first_name, hc.last_name, prospect.companyName);
 
-    if (!contactId) {
-      const created = await base44.entities.Contact.create({
-        prospectId: prospect.id,
-        ownerUserId: prospect.ownerUserId,
-        firstName: hc.first_name || "",
-        lastName: hc.last_name || "",
-        fullName: `${hc.first_name || ""} ${hc.last_name || ""}`.trim(),
-        title: hc.position || "",
-        email: hc.value,
-        emailConfidence: hc.confidence,
-        linkedinUrl: linkedinUrl || "",
-        hasEmail: true,
-        source: "HUNTER",
-      });
-      contactId = created.id;
-    } else if (linkedinUrl && !existing[0]?.linkedinUrl) {
-      await base44.entities.Contact.update(contactId, { linkedinUrl });
-    }
-  }
-
-  // 4. Stub contacts from AI if no Hunter results
-  if (hunterContacts.length === 0 && analysis.decisionMakerTitles?.length > 0) {
-    const contactPageUrl = `https://www.${prospect.domain}/contact`;
-    for (const title of analysis.decisionMakerTitles.slice(0, 2)) {
-      const existing = await base44.entities.Contact.filter({ prospectId: prospect.id, title });
-      if (existing.length === 0) {
+      if (!contactId) {
         await base44.entities.Contact.create({
           prospectId: prospect.id,
           ownerUserId: prospect.ownerUserId,
-          title,
-          hasEmail: false,
-          contactPageUrl,
-          source: "SERP",
+          firstName: hc.first_name || "",
+          lastName: hc.last_name || "",
+          fullName: `${hc.first_name || ""} ${hc.last_name || ""}`.trim(),
+          title: hc.position || "",
+          email: hc.value,
+          emailConfidence: hc.confidence,
+          linkedinUrl: linkedinUrl || "",
+          hasEmail: true,
+          source: "HUNTER",
         });
+      } else if (linkedinUrl && !existing[0]?.linkedinUrl) {
+        await base44.entities.Contact.update(contactId, { linkedinUrl });
       }
+    } catch (_) {}
+  }
+
+  // 4. Stub contacts from AI titles when Hunter finds nothing
+  if (hunterContacts.length === 0 && analysis.decisionMakerTitles?.length > 0) {
+    const contactPageUrl = `https://www.${prospect.domain}/contact`;
+    for (const title of analysis.decisionMakerTitles.slice(0, 2)) {
+      try {
+        const existing = await base44.entities.Contact.filter({ prospectId: prospect.id, title });
+        if (existing.length === 0) {
+          await base44.entities.Contact.create({
+            prospectId: prospect.id,
+            ownerUserId: prospect.ownerUserId,
+            title,
+            hasEmail: false,
+            contactPageUrl,
+            source: "SERP",
+          });
+        }
+      } catch (_) {}
     }
   }
 
-  // 5. Update prospect
+  // 5. Update prospect with analysis results
   await base44.entities.Prospect.update(prospect.id, {
     status: "ANALYSÉ",
     relevanceScore: analysis.relevanceScore,
@@ -170,6 +173,8 @@ Réponds en JSON:
     eventTypes: analysis.eventTypes,
     recommendedApproach: analysis.recommendedApproach,
     analysisRaw: analysis,
+    analysisError: null,
+    analysisErrorAt: null,
   });
 
   return analysis;
@@ -180,10 +185,10 @@ Deno.serve(async (req) => {
   const user = await base44.auth.me();
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { campaignId } = await req.json();
+  const body = await req.json();
+  const { campaignId, prospectIds } = body;
   if (!campaignId) return Response.json({ error: "campaignId requis" }, { status: 400 });
 
-  // RLS check
   const campaigns = await base44.entities.Campaign.filter({ id: campaignId });
   const campaign = campaigns[0];
   if (!campaign) return Response.json({ error: "Campagne introuvable" }, { status: 404 });
@@ -191,59 +196,82 @@ Deno.serve(async (req) => {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Mark analysis as RUNNING
+  const startedAt = Date.now();
+  const mode = prospectIds && prospectIds.length > 0 ? "selection" : "all";
+  const skipStatuses = ["ANALYSÉ", "QUALIFIÉ", "REJETÉ", "EXPORTÉ"];
+
+  // Immediately mark as RUNNING
   await base44.entities.Campaign.update(campaignId, {
     analysisStatus: "RUNNING",
     analysisLastHeartbeatAt: new Date().toISOString(),
     analysisProgressPct: 0,
   });
 
-  // Fetch all NOUVEAU prospects
-  const prospects = await base44.entities.Prospect.filter({ campaignId, status: "NOUVEAU" }, "-created_date", 200);
+  // Fetch and filter prospects to analyze
+  const allProspects = await base44.entities.Prospect.filter({ campaignId }, "-created_date", 500);
+  let prospects;
+  if (mode === "selection") {
+    // Only the explicitly requested IDs, skip already-done ones
+    prospects = allProspects.filter(p => prospectIds.includes(p.id) && !skipStatuses.includes(p.status));
+  } else {
+    // All pending: NOUVEAU + previously failed
+    prospects = allProspects.filter(p => p.status === "NOUVEAU" || p.status === "FAILED_ANALYSIS");
+  }
+
   const total = prospects.length;
 
   if (total === 0) {
-    await base44.entities.Campaign.update(campaignId, {
-      analysisStatus: "COMPLETED",
-      analysisProgressPct: 100,
-    });
-    return Response.json({ success: true, analyzed: 0, total: 0 });
+    await base44.entities.Campaign.update(campaignId, { analysisStatus: "COMPLETED", analysisProgressPct: 100 });
+    return Response.json({ success: true, analyzed: 0, failed: 0, total: 0, mode });
   }
 
   let analyzed = 0;
   let failed = 0;
   const BATCH = 5;
 
-  // Process in batches
   for (let i = 0; i < prospects.length; i += BATCH) {
     const batch = prospects.slice(i, i + BATCH);
 
+    // Process batch in parallel, each with isolated error handling
     await Promise.allSettled(batch.map(async (prospect) => {
       try {
         await analyzeProspect(prospect, base44);
         analyzed++;
       } catch (e) {
         failed++;
-        console.error(`Failed to analyze prospect ${prospect.id}:`, e.message);
+        console.error(`Failed prospect ${prospect.id}:`, e.message);
+        try {
+          await base44.entities.Prospect.update(prospect.id, {
+            status: "FAILED_ANALYSIS",
+            analysisError: (e.message || "Erreur inconnue").slice(0, 500),
+            analysisErrorAt: new Date().toISOString(),
+          });
+        } catch (_) {}
       }
     }));
 
-    // Update heartbeat + progress after each batch
-    const pct = Math.round(((i + batch.length) / total) * 100);
-    const countAnalyzed = (campaign.countAnalyzed || 0) + analyzed;
+    // Heartbeat after each batch (never write 100 until done)
+    const pct = Math.min(Math.round(((i + batch.length) / total) * 100), 99);
     await base44.entities.Campaign.update(campaignId, {
       analysisLastHeartbeatAt: new Date().toISOString(),
       analysisProgressPct: pct,
-      countAnalyzed,
     });
   }
 
-  // Final status
-  const finalStatus = analyzed > 0 ? "COMPLETED" : "FAILED";
+  // Recalculate counts from DB (source of truth)
+  const finalProspects = await base44.entities.Prospect.filter({ campaignId }, "-created_date", 500);
+  const countAnalyzed = finalProspects.filter(p => ["ANALYSÉ", "QUALIFIÉ", "REJETÉ", "EXPORTÉ"].includes(p.status)).length;
+  const countQualified = finalProspects.filter(p => p.status === "QUALIFIÉ").length;
+  const countRejected = finalProspects.filter(p => p.status === "REJETÉ").length;
+  const durationMs = Date.now() - startedAt;
+
   await base44.entities.Campaign.update(campaignId, {
-    analysisStatus: finalStatus,
+    analysisStatus: "COMPLETED",
     analysisProgressPct: 100,
-    countAnalyzed: (campaign.countAnalyzed || 0) + analyzed,
+    countAnalyzed,
+    countQualified,
+    countRejected,
+    analysisLastHeartbeatAt: new Date().toISOString(),
   });
 
   await base44.entities.ActivityLog.create({
@@ -251,9 +279,10 @@ Deno.serve(async (req) => {
     actionType: "ANALYZE_CAMPAIGN_PROSPECTS",
     entityType: "Campaign",
     entityId: campaignId,
-    payload: { analyzed, failed, total },
+    payload: { analyzed, failed, total, durationMs, mode },
     status: analyzed > 0 ? "SUCCESS" : "ERROR",
+    errorMessage: failed > 0 ? `${failed}/${total} prospects ont échoué l'analyse` : null,
   });
 
-  return Response.json({ success: true, analyzed, failed, total });
+  return Response.json({ success: true, analyzed, failed, total, mode });
 });

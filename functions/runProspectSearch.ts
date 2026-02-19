@@ -105,30 +105,68 @@ function buildBroadFallbacks(campaign, loc) {
   ];
 }
 
+// Domains that never yield valid org prospects
+const BLOCKED_DOMAINS = new Set([
+  "wikipedia.org", "fr.wikipedia.org", "en.wikipedia.org",
+  "youtube.com", "youtu.be",
+  "facebook.com", "instagram.com", "twitter.com", "x.com",
+  "linkedin.com", "tiktok.com", "pinterest.com", "reddit.com",
+  "eventbrite.com", "eventbrite.ca", "meetup.com", "ticketmaster.com", "ticketmaster.ca",
+  "glassdoor.com", "indeed.com", "monster.com",
+  "lapresse.ca", "ledevoir.com", "journaldequebec.com", "lesaffaires.com",
+  "radio-canada.ca", "cbc.ca", "tvanouvelles.ca", "24heures.ca",
+  "cision.com", "newswire.ca", "prnewswire.com", "businesswire.com", "globenewswire.com",
+  "google.com", "bing.com", "yahoo.com", "yelp.com", "tripadvisor.com",
+  "wordpress.com", "wix.com", "squarespace.com", "medium.com", "substack.com",
+]);
+
+// URL paths that indicate content pages, not org homepages
+const BLOCKED_URL_PATHS = /\/blog\/|\/news\/|\/press\/|\/article\/|\/articles\/|\/actualite\/|\/actualites\/|\/magazine\/|\/careers\/|\/carrieres\/|\/jobs\/|\/emplois\/|\/offres-emploi\/|\/salle-de-presse\/|\/communique\/|\/communiques\/|\/medias\/|\/presse\//i;
+
 function normalizeResult(r) {
    const url = r.url || r.link;
    if (!url) return null;
    const domain = extractDomain(url);
    if (!domain) return null;
 
-   // Fast heuristic-based validation (no AI)
+   // Block generic/media/social domains
+   const baseDomain = domain.split(".").slice(-2).join(".");
+   if (BLOCKED_DOMAINS.has(domain) || BLOCKED_DOMAINS.has(baseDomain)) return null;
+
+   // Block article/press/jobs URL paths
+   if (BLOCKED_URL_PATHS.test(url)) return null;
+
    const title = (r.title || "").toLowerCase();
    const snippet = (r.snippet || "").toLowerCase();
    const combined = title + " " + snippet;
 
-   // Exclude event planners, agencies, directories
-   const excludePatterns = /agence|event planner|organisateur professionnel|planificateur|bureau de|répertoire|annuaire|directory|listing|database|crm|software|solution|plateforme|template|theme/i;
+   // Exclude agencies, directories, tech products
+   const excludePatterns = /agence événementielle|event planner|organisateur professionnel|planificateur événement|bureau de congrès|répertoire fournisseurs|annuaire|directory|listing|database|crm\b|logiciel événement|software|saas|plateforme de gestion|template|thème wordpress|plugin/i;
    if (excludePatterns.test(combined)) return null;
 
    // Require event-related keywords
-   const eventPatterns = /conférence|aga|assemblée|gala|événement|meeting|summit|forum|symposium|colloque|webinaire|formation|townhall|réunion|congrès/i;
+   const eventPatterns = /conférence|aga\b|assemblée générale|gala|événement corporatif|événement d'entreprise|corporate event|meeting annuel|summit|forum|symposium|colloque|webinaire|formation interne|townhall|town.?hall|réunion annuelle|congrès/i;
    if (!eventPatterns.test(combined)) return null;
 
-   const companyName = r.title?.slice(0, 100) || domain;
+   // Skip article-style headlines
+   const articleTitlePatterns = /^(comment |pourquoi |quand |les \d+|top \d+|\d+ façons|guide |conseils |astuces |what is |how to |best |why |when )/i;
+   if (articleTitlePatterns.test(r.title || "")) return null;
+
+   // Use root domain URL when the path is deep (likely an article page)
+   let websiteUrl = url;
+   try {
+     const parsed = new URL(url.startsWith("http") ? url : "https://" + url);
+     if (parsed.pathname.split("/").filter(Boolean).length > 2) {
+       websiteUrl = `https://${parsed.hostname}`;
+     }
+   } catch (_) {}
+
+   const companyName = (r.title || "").slice(0, 100) || domain;
+
    return {
      normalized: {
        companyName,
-       website: url,
+       website: websiteUrl,
        domain,
        industry: null,
        location: { city: "", region: "", country: "CA" },
@@ -184,6 +222,7 @@ Deno.serve(async (req) => {
   let allQueries = buildQueryVariants(campaign, loc);
   let queryIndex = 0;
   let skippedDupe = 0;
+  let filteredNonOrgCount = 0;
   let braveRequestsUsed = 0;
   let totalQueriesRun = 0;
   let rateLimitHit = false;
@@ -237,7 +276,7 @@ Deno.serve(async (req) => {
       for (const r of results) {
           if (created >= target) break;
           const normalized = normalizeResult(r);
-          if (!normalized) continue;
+          if (!normalized) { filteredNonOrgCount++; continue; }
             const { domain } = normalized;
             if (existingDomains.has(domain) || kbDomains.has(domain)) { skippedDupe++; continue; }
 
@@ -345,6 +384,7 @@ Deno.serve(async (req) => {
       queries: totalQueriesRun,
       openai: created,
       skippedDuplicates: skippedDupe,
+      filteredNonOrgCount,
       braveRequestsUsed,
       braveMaxRequests: BRAVE_MAX_REQUESTS,
       stopReason,
