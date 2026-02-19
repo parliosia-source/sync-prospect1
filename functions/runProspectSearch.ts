@@ -158,28 +158,22 @@ async function normalizeResult(r) {
   const website   = `https://${domain}`;
   const sourceUrl = url;
 
-  let companyName = null;
-  const needsHomepageFetch = isEventSubdomain || EVENT_TITLE_RE.test(rawTitle) || rawTitle.length < 4;
+  // Always fetch homepage first — it's the most reliable source for the real org name
+  let companyName = await fetchOrgName(domain);
 
-  if (needsHomepageFetch) {
-    companyName = await fetchOrgName(domain);
-  }
-
+  // Fallback: clean up the SERP title if homepage fetch failed
   if (!companyName) {
     const cleanedTitle = rawTitle
-      .replace(/\s*[-–—|]\s*(congrès|conférence|gala|assemblée|colloque|forum|événement|event|2024|2025|2026)\b.*/i, "")
+      .replace(/\s*[-–—|]\s*(congrès|conférence|gala|assemblée|colloque|forum|événement|event|2024|2025|2026|programme|inscription|ordre du jour)\b.*/i, "")
+      .replace(/\s*[-–—|]\s*\d{4}\b.*/i, "")
       .trim();
-    if (cleanedTitle.length >= 3 && !EVENT_TITLE_RE.test(cleanedTitle)) {
+    // Only accept if it doesn't look like an event title or an article
+    if (cleanedTitle.length >= 3 && !EVENT_TITLE_RE.test(cleanedTitle) && !isEventSubdomain) {
       companyName = cleanedTitle.slice(0, 80);
     }
   }
 
-  // Always try homepage fetch as last resort before giving up
-  if (!companyName) {
-    companyName = await fetchOrgName(domain);
-  }
-
-  // Reject if we still can't determine a real name
+  // Reject if we still can't determine a real org name
   if (!companyName) return null;
 
   return {
