@@ -121,10 +121,14 @@ export default function CampaignDetail() {
     });
   };
 
-  // Check if analysis heartbeat is stale (> 2 minutes = stuck)
+  // Check if analysis heartbeat is stale (> 3 minutes = possibly stuck, but still show bar)
   const analysisIsStale = campaign?.analysisStatus === "RUNNING" &&
     campaign?.analysisLastHeartbeatAt &&
-    (Date.now() - new Date(campaign.analysisLastHeartbeatAt).getTime()) > 2 * 60 * 1000;
+    (Date.now() - new Date(campaign.analysisLastHeartbeatAt).getTime()) > 3 * 60 * 1000;
+
+  // Real counts for display
+  const analysisDone  = campaign?.analysisDoneCount ?? campaign?.countAnalyzed ?? 0;
+  const analysisTotal = campaign?.analysisTargetCount ?? counts["Tous"] ?? 0;
 
   const filtered = activeTab === "Tous" ? prospects : prospects.filter(p => p.status === activeTab);
   const counts = TABS.reduce((acc, t) => {
@@ -244,21 +248,22 @@ export default function CampaignDetail() {
             </div>
           )}
 
-          {/* Analysis progress bar */}
-          {campaign.analysisStatus === "RUNNING" && !analysisIsStale && (
-            <div className="mt-3 bg-purple-50 border border-purple-100 rounded-xl px-4 py-3">
-              <div className="flex items-center justify-between text-xs text-purple-700 mb-1.5">
-                <span className="flex items-center gap-1.5 font-medium">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  Analyse IA en cours… (continue même si vous quittez la page)
+          {/* Analysis progress bar — always show when RUNNING, warn if stale */}
+          {campaign.analysisStatus === "RUNNING" && (
+            <div className={`mt-3 rounded-xl px-4 py-3 border ${analysisIsStale ? "bg-amber-50 border-amber-200" : "bg-purple-50 border-purple-100"}`}>
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className={`flex items-center gap-1.5 font-medium ${analysisIsStale ? "text-amber-700" : "text-purple-700"}`}>
+                  <RefreshCw className={`w-3.5 h-3.5 ${analysisIsStale ? "text-amber-500" : "animate-spin text-purple-500"}`} />
+                  {analysisIsStale ? "Activité ralentie — analyse toujours en cours…" : "Analyse IA en cours… (continue si vous quittez la page)"}
                 </span>
-                <span>{campaign.analysisProgressPct || 0}%</span>
+                <span className={analysisIsStale ? "text-amber-600" : "text-purple-600"}>{campaign.analysisProgressPct || 0}%</span>
               </div>
-              <div className="h-2 bg-purple-100 rounded-full overflow-hidden">
-                <div className="h-2 bg-purple-500 rounded-full transition-all duration-500" style={{ width: `${campaign.analysisProgressPct || 0}%` }} />
+              <div className={`h-2 rounded-full overflow-hidden ${analysisIsStale ? "bg-amber-100" : "bg-purple-100"}`}>
+                <div className={`h-2 rounded-full transition-all duration-500 ${analysisIsStale ? "bg-amber-400" : "bg-purple-500"}`}
+                  style={{ width: `${campaign.analysisProgressPct || 0}%` }} />
               </div>
-              <div className="text-xs text-purple-400 mt-1">
-                {campaign.countAnalyzed || 0} analysés sur {counts["Tous"]} prospects
+              <div className={`text-xs mt-1 ${analysisIsStale ? "text-amber-500" : "text-purple-400"}`}>
+                {analysisTotal > 0 ? `${analysisDone} / ${analysisTotal} analysés` : `${campaign.countAnalyzed || 0} analysés`}
               </div>
             </div>
           )}
@@ -271,27 +276,22 @@ export default function CampaignDetail() {
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                   Recherche en cours…
                 </span>
-                <span>{campaign.progressPct || 0}%</span>
+                <span>{counts["Tous"]} / {campaign.targetCount} · {campaign.progressPct || 0}%</span>
               </div>
               <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
                 <div className="h-2 bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${campaign.progressPct || 0}%` }} />
               </div>
-              <div className="text-xs text-blue-500 mt-1.5 space-y-1">
-                <div>
-                {(campaign.progressPct || 0) < 20 ? "🌐 Initialisation des requêtes…" :
-                 (campaign.progressPct || 0) < 70 ? "🌐 Recherche web & collecte…" :
-                 (campaign.progressPct || 0) < 87 ? "🌐 Fallbacks élargis…" :
-                 (campaign.progressPct || 0) < 95 ? "📚 Complétion KB…" :
-                 "✅ Finalisation…"}
-                {" · "}<strong>{counts["Tous"]}</strong>/{campaign.targetCount} prospects trouvés
-                </div>
+              <div className="text-xs text-blue-500 mt-1.5 flex flex-wrap gap-3">
+                <span>
+                  {counts["Tous"] === 0 ? "🌐 Initialisation…" :
+                   (campaign.progressPct || 0) < 87 ? "🌐 Recherche web…" :
+                   (campaign.progressPct || 0) < 96 ? "📚 Complétion KB…" : "✅ Finalisation…"}
+                </span>
                 {campaign.toolUsage?.braveRequestsUsed !== undefined && (
-                  <div className="text-slate-500 flex gap-3">
-                    <span>Brave : {campaign.toolUsage.braveRequestsUsed} / {campaign.toolUsage.braveMaxRequests || 250} req</span>
-                    {campaign.toolUsage.kbTopupAdded > 0 && (
-                      <span className="text-purple-500">📚 KB : +{campaign.toolUsage.kbTopupAdded}</span>
-                    )}
-                  </div>
+                  <span className="text-slate-500">Brave : {campaign.toolUsage.braveRequestsUsed}/{campaign.toolUsage.braveMaxRequests || 250}</span>
+                )}
+                {campaign.toolUsage?.kbTopupAdded > 0 && (
+                  <span className="text-purple-500">📚 KB : +{campaign.toolUsage.kbTopupAdded}</span>
                 )}
               </div>
             </div>
