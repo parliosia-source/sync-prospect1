@@ -128,6 +128,15 @@ export default function CampaignDetail() {
   }, {});
   const failedCount = prospects.filter(p => p.status === "FAILED_ANALYSIS").length;
 
+  // Check if analysis heartbeat is stale (> 3 minutes)
+  const analysisIsStale = campaign?.analysisStatus === "RUNNING" &&
+    campaign?.analysisLastHeartbeatAt &&
+    (Date.now() - new Date(campaign.analysisLastHeartbeatAt).getTime()) > 3 * 60 * 1000;
+
+  // Real counts for display
+  const analysisDone  = campaign?.analysisDoneCount ?? campaign?.countAnalyzed ?? 0;
+  const analysisTotal = campaign?.analysisTargetCount ?? counts["Tous"] ?? 0;
+
   if (!campaignId) return <div className="p-6 text-slate-500">ID campagne manquant</div>;
 
   return (
