@@ -449,7 +449,28 @@ export default function CampaignDetail() {
         )}
       </div>
 
-      {/* Cancel Confirmation Dialog */}
+      {/* Cancel Analysis Dialog */}
+      <AlertDialog open={cancelAnalysisDialog} onOpenChange={setCancelAnalysisDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-orange-500" />
+              Arrêter l'analyse ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              L'analyse en cours sera arrêtée. Les prospects déjà analysés seront conservés. Les restants resteront en NOUVEAU.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex gap-2 justify-end">
+            <AlertDialogCancel>Continuer l'analyse</AlertDialogCancel>
+            <AlertDialogAction onClick={handleCancelAnalysis} className="bg-orange-500 hover:bg-orange-600">
+              Arrêter
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Cancel Search Confirmation Dialog */}
       <AlertDialog open={cancelDialog} onOpenChange={setCancelDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
