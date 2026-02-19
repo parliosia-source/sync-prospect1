@@ -183,6 +183,11 @@ export default function CampaignDetail() {
                   Reprendre l'analyse
                 </Button>
               )}
+              {campaign.analysisStatus === "RUNNING" && (
+                <Button variant="outline" onClick={() => setCancelAnalysisDialog(true)} className="gap-2 border-orange-300 text-orange-700 hover:bg-orange-50 text-xs h-8">
+                  Arrêter l'analyse
+                </Button>
+              )}
               {campaign.status === "RUNNING" && (
                 <Button variant="outline" onClick={() => setCancelDialog(true)} className="gap-2 border-orange-300 text-orange-700 hover:bg-orange-50">
                   Annuler la recherche
