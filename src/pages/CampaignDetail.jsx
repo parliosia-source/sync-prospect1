@@ -29,6 +29,7 @@ export default function CampaignDetail() {
   const [analyzingIds, setAnalyzingIds] = useState(new Set());
   const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
   const [cancelDialog, setCancelDialog] = useState(false);
+  const [cancelAnalysisDialog, setCancelAnalysisDialog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [deleteProspects, setDeleteProspects] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -86,21 +87,36 @@ export default function CampaignDetail() {
     await loadAll();
   };
 
+  const handleCancelAnalysis = async () => {
+    setCancelAnalysisDialog(false);
+    await base44.functions.invoke("cancelAnalysis", { campaignId });
+    setIsAnalyzingAll(false);
+    await loadAll();
+  };
+
   const handleDelete = async () => {
     await base44.functions.invoke("deleteCampaign", { campaignId, deleteProspects });
     window.location.href = createPageUrl("Campaigns");
   };
 
   const handleAnalyzeAll = (prospectIds) => {
-    // Immediately show RUNNING state — no await
+    // Immediately show RUNNING state — fire-and-forget
     setCampaign(c => ({ ...c, analysisStatus: "RUNNING", analysisProgressPct: 0 }));
     setIsAnalyzingAll(true);
-    setSelectedIds(new Set());
+    // Do NOT clear selectedIds here so checkboxes stay visible during run
     base44.functions.invoke("analyzeCampaignProspects", {
       campaignId,
       ...(prospectIds && prospectIds.length > 0 ? { prospectIds } : {}),
-    }).finally(() => {
+    }).then(() => {
       setIsAnalyzingAll(false);
+      setSelectedIds(new Set());
+      loadAll();
+    }).catch((err) => {
+      setIsAnalyzingAll(false);
+      const msg = err?.response?.status === 502
+        ? "Timeout — l'analyse continue en arrière-plan. Rechargez dans quelques minutes."
+        : err?.message || "Erreur inattendue";
+      setCampaign(c => ({ ...c, errorMessage: msg }));
       loadAll();
     });
   };

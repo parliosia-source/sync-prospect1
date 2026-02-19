@@ -280,7 +280,7 @@ Deno.serve(async (req) => {
 
   let analyzed = 0;
   let failed = 0;
-  const BATCH = 5;
+  const BATCH = 3;
 
   for (let i = 0; i < prospects.length; i += BATCH) {
     const batch = prospects.slice(i, i + BATCH);
