@@ -474,6 +474,8 @@ Deno.serve(async (req) => {
     entityId: campaignId,
     payload: {
       created,
+      createdWeb,
+      kbTopupAdded,
       target,
       coverage: `${Math.round(created / target * 100)}%`,
       skippedDuplicates: skippedDupe,
@@ -481,6 +483,7 @@ Deno.serve(async (req) => {
       braveRequestsUsed,
       braveMaxRequests: BRAVE_MAX_REQUESTS,
       stopReason,
+      webStopReason,
       lastRateLimitRemaining,
     },
     status: created > 0 ? "SUCCESS" : "ERROR",
