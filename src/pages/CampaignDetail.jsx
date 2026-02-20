@@ -326,12 +326,12 @@ export default function CampaignDetail() {
               <div className="flex items-center justify-between text-xs text-blue-700 mb-1.5">
                 <span className="flex items-center gap-1.5 font-medium">
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  Recherche en cours…
+                  Recherche en cours (Web + KB)…
                 </span>
-                <span>{counts["Tous"]} / {campaign.targetCount} · {campaign.progressPct || 0}%</span>
+                <span>{counts["Tous"]} / {campaign.targetCount} · {Math.min(campaign.progressPct || 0, 99)}%</span>
               </div>
               <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
-                <div className="h-2 bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${campaign.progressPct || 0}%` }} />
+                <div className="h-2 bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${Math.min(campaign.progressPct || 0, 99)}%` }} />
               </div>
             </div>
           )}
