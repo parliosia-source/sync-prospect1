@@ -57,6 +57,29 @@ export default function Admin() {
     setLogs(data);
   };
 
+  const loadMaintenance = async () => {
+    setMaintenanceLoading(true);
+    const { data } = await base44.functions.invoke('getKbStats');
+    setKbStats(data);
+    setMaintenanceLoading(false);
+  };
+
+  const handleBackfillDryRun = async () => {
+    setMaintenanceLoading(true);
+    const { data } = await base44.functions.invoke('backfillKbIndustrySectors', { dryRun: true, limit: 500 });
+    setBackfillStats(data);
+    setMaintenanceLoading(false);
+  };
+
+  const handleBackfillExecute = async () => {
+    if (!window.confirm("Appliquer le backfill à la base (500 entités)? Cette action est irréversible.")) return;
+    setMaintenanceLoading(true);
+    const { data } = await base44.functions.invoke('backfillKbIndustrySectors', { dryRun: false, limit: 500 });
+    setBackfillStats(data);
+    await loadMaintenance();
+    setMaintenanceLoading(false);
+  };
+
   const handleSaveTemplate = async () => {
     setIsSaving(true);
     if (editingTemplate.id) {
