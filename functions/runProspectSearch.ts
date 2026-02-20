@@ -151,8 +151,31 @@ function cleanOrgName(raw) {
   return raw.replace(/\s*[|\-–—]\s*.{0,80}$/, "").replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
+// ── Sector matcher helper (basic keyword match for fast pre-screening)
+function matchesSector(text, sectors) {
+  if (!sectors || sectors.length === 0) return true;
+  const lower = text.toLowerCase();
+  const sectorKeywords = {
+    "Finance & Assurance": /finance|assurance|banque|bank|crédit|insurance|hypothèque/i,
+    "Santé & Pharma": /santé|pharma|medical|médical|hôpital|hospital|clinique|dentaire|doctor/i,
+    "Technologie": /tech|software|informatique|it |digital|logiciel|app|cloud|saas|startup/i,
+    "Gouvernement & Public": /gouvernement|government|municipal|municipal|public|administration|état|ministère/i,
+    "Éducation & Formation": /éducation|école|school|université|university|collège|formation|training|cégep/i,
+    "Associations & OBNL": /association|organisme|obnl|non-profit|ngô|charity|fondation|fédération/i,
+    "Immobilier": /immobilier|real estate|property|développeur|developer|construction|rénovation/i,
+    "Droit & Comptabilité": /droit|legal|comptable|accounting|cabinet|law firm|avocat/i,
+    "Industrie & Manufacture": /industrie|manufacture|factory|usine|production|fabrication|mining|minier/i,
+    "Commerce de détail": /retail|commerce|boutique|magasin|store|détail|retail|vente/i,
+    "Transport & Logistique": /transport|logistique|logistics|delivery|livraison|cargo|shipping/i,
+  };
+  return sectors.some(s => {
+    const regex = sectorKeywords[s];
+    return regex ? regex.test(lower) : false;
+  });
+}
+
 // ── normalizeResult ────────────────────────────────────────────────────────────
-async function normalizeResult(r) {
+async function normalizeResult(r, campaignSectors) {
   const url = r.url || r.link;
   if (!url) return null;
 
