@@ -333,19 +333,6 @@ export default function CampaignDetail() {
               <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
                 <div className="h-2 bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${campaign.progressPct || 0}%` }} />
               </div>
-              <div className="text-xs text-blue-500 mt-1.5 flex flex-wrap gap-3">
-                <span>
-                  {counts["Tous"] === 0 ? "🌐 Initialisation…" :
-                   (campaign.progressPct || 0) < 87 ? "🌐 Recherche web…" :
-                   (campaign.progressPct || 0) < 96 ? "📚 Complétion KB…" : "✅ Finalisation…"}
-                </span>
-                {campaign.toolUsage?.braveRequestsUsed !== undefined && (
-                  <span className="text-slate-500">Brave : {campaign.toolUsage.braveRequestsUsed}/{campaign.toolUsage.braveMaxRequests || 250}</span>
-                )}
-                {campaign.toolUsage?.kbTopupAdded > 0 && (
-                  <span className="text-purple-500">📚 KB : +{campaign.toolUsage.kbTopupAdded}</span>
-                )}
-              </div>
             </div>
           )}
         </div>
