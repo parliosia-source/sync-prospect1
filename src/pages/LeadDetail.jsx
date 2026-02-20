@@ -44,7 +44,8 @@ export default function LeadDetail() {
       ]);
       setContacts(ctcts);
       setMessages(msgs);
-      if (ctcts.length > 0) setSelectedContactId(ctcts[0].id);
+      // PHASE D: Set selectedContactId to primaryContactId or first contact (if available)
+      setSelectedContactId(l.primaryContactId || (ctcts.length > 0 ? ctcts[0].id : ""));
       if (l.messageCount === 0) setMsgType("FIRST_MESSAGE");
       else if (l.messageCount === 1) setMsgType("FOLLOW_UP_J7");
       else setMsgType("FOLLOW_UP_J14");
