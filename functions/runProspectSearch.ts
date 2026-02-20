@@ -560,6 +560,7 @@ Deno.serve(async (req) => {
         const elapsed = Date.now() - START_TIME;
         const maxPages = elapsed > 60000 ? 3 : BRAVE_MAX_PAGES_PER_QUERY;
 
+        let consecutiveRejects = 0;
         for (let pageIdx = 0; pageIdx < maxPages; pageIdx++) {
           if (Date.now() - START_TIME > MAX_DURATION_MS) { stopReason = "TIME_BUDGET"; break; }
           if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
@@ -569,7 +570,6 @@ Deno.serve(async (req) => {
           const { results, rateLimited } = await braveSearch(query, 20, offset);
           braveRequestsUsed++;
 
-          // A) Rate limit 429: stop Web loop, DON'T FAIL
           if (rateLimited) {
             console.log(`[WEB_FILL] RATE_LIMIT hit`);
             stopReason = "BRAVE_RATE_LIMITED";
@@ -579,17 +579,34 @@ Deno.serve(async (req) => {
 
           for (const r of results) {
             if (prospectCount >= targetCount) break;
+            if (consecutiveRejects > 30) { stopReason = "QUALITY_THRESHOLD"; break; }
             
-            // 1) Pre-LLM hard filters first
+            // Hard pre-LLM filters
+            if (HARD_EXCLUDE_DOMAINS.test(r.url) || HARD_EXCLUDE_TITLE.test(r.title)) {
+              consecutiveRejects++;
+              continue;
+            }
+            
+            // Normalize & check sector match
             const normalized = await normalizeResult(r, requiredSectors);
-            if (!normalized.isValid) continue;
-
-            // Strict scoring: only accept if score >= 2 for at least one sector
-            if (!normalized.sectorMatch) continue;
+            if (!normalized.isValid) {
+              consecutiveRejects++;
+              continue;
+            }
+            if (!normalized.sectorMatch) {
+              consecutiveRejects++;
+              continue;
+            }
             
-            // 2) Then general noise check
+            // Noise check
             const noise = shouldRejectByNoise(r.url, r.title, r.snippet);
-            if (noise) continue;
+            if (noise) {
+              consecutiveRejects++;
+              continue;
+            }
+            
+            // Accepted: reset counter
+            consecutiveRejects = 0;
 
             const domNorm = normalized.domain.toLowerCase();
             if (existingDomains.has(domNorm)) continue;
