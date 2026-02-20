@@ -280,12 +280,15 @@ async function normalizeResult(r, requiredSectors) {
       }
     }
 
-    // B) Match sectors via STRICT rules
+    // B) Match sectors via STRICT rules with scoring
     const fullText = `${title} ${snippet} ${url} ${domain}`.toLowerCase();
     let matchedSectors = [];
+    let sectorScores = {};
 
     if (requiredSectors.length > 0) {
-      matchedSectors = matchSectorsStrict(fullText, requiredSectors);
+      const result = matchSectorsStrict(fullText, requiredSectors);
+      matchedSectors = result.matched;
+      sectorScores = result.scores;
     }
 
     const nameMatch = title.match(/^([A-ZÀ-ÿ][a-zà-ÿ\s\-'\.&()]{2,60}?)(?:\s*[-–|]|$)/);
@@ -294,6 +297,7 @@ async function normalizeResult(r, requiredSectors) {
     return {
       isValid: true,
       sectorMatch: matchedSectors.length > 0,
+      sectorScores,
       companyName,
       website: url,
       domain,
