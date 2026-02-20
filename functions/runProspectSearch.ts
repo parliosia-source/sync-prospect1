@@ -348,11 +348,15 @@ Deno.serve(async (req) => {
     }
 
     // Phase B: KB Top-up
-    if (KB_TOPUP_ENABLED && prospectCount < targetCount && !stopped) {
+    // Exécuter KB même si Brave budget atteint, SAUF si TIME_BUDGET ou stopped forcément
+    const canRunKB = KB_TOPUP_ENABLED && prospectCount < targetCount && (!stopped || stopReason === "BUDGET_GUARD" || stopReason === "QUERIES_EXHAUSTED");
+    if (canRunKB) {
       progressPct = 90;
       await base44.entities.Campaign.update(campaignId, { progressPct });
 
+      console.log(`[KB_TOPUP] START: prospectCount=${prospectCount}, targetCount=${targetCount}, stopReason=${stopReason}`);
       const kbAll = await base44.entities.KBEntity.list("-updated_date", 500);
+      console.log(`[KB_TOPUP] Candidates found: ${kbAll.length}`);
       const locCity = locQuery.split(",")[0].toLowerCase();
       const hasRequiredSectors = requiredSectors.length > 0;
 
