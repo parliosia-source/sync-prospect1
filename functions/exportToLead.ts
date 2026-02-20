@@ -47,6 +47,16 @@ Deno.serve(async (req) => {
     messageCount: 0,
   });
 
+  // PHASE C: Rattacher les messages du prospect au lead
+  try {
+    const prospectMessages = await base44.entities.Message.filter({ prospectId, status: "DRAFT" }, "-created_date", 10);
+    const lastDraftMessage = prospectMessages[0];
+    if (lastDraftMessage) {
+      // Lier le dernier brouillon au lead
+      await base44.entities.Message.update(lastDraftMessage.id, { leadId: lead.id });
+    }
+  } catch (_) {}
+
   // Update prospect
   await base44.entities.Prospect.update(prospectId, { status: "EXPORTÉ", leadId: lead.id });
 
