@@ -113,51 +113,63 @@ function shouldRejectByNoise(url, title, snippet) {
   return Object.values(ANTI_BRUIT).some(regex => regex.test(fullText));
 }
 
-// ── SECTOR_RULES: Strict include/exclude for all sectors ──────────────────────
+// ── SECTOR_RULES: Generic scoring for all 11 sectors ────────────────────────────
+// Strong keywords +2, weak keywords +1, excludes -3
 const SECTOR_RULES = {
   "Technologie": {
-    include: ["software", "tech", "informatique", "données", "data", "ai", "ia", "cloud", "cybersecurity", "cybersécurité", "logiciel", "digital", "saas", "application", "développement", "development", "it", "startup tech", "plateforme", "platform", "système", "system", "infrastructure", "programmation", "coding", "javascript", "python", "java", "devops", "database"],
-    exclude: ["agence", "agency", "cours en ligne", "online course", "formation", "training", "webinaire", "webinar", "annuaire", "directory", "listing", "université", "university", "collège", "college", "école", "school", "blog", "article", "news"]
+    includeStrong: ["software", "tech", "informatique", "données", "data", "ai", "ia", "cloud", "cybersecurity", "cybersécurité", "logiciel", "digital", "saas", "application", "développement", "it", "plateforme", "system", "infrastructure", "javascript", "python", "devops", "database"],
+    includeWeak: ["startup", "agile", "api", "web", "coding", "programmation"],
+    excludeStrong: ["agence", "formation", "training", "webinaire", "université", "université", "école", "blog", "article", "news", "annuaire", "directory"]
   },
   "Finance & Assurance": {
-    include: ["finance", "assurance", "banque", "bank", "investment", "crédit", "loan", "fintech", "insurance", "courtage", "brokerage", "capital", "investissement", "fonds", "fund", "obligataire", "bond", "portefeuille", "portfolio", "risque", "risk", "actuaire", "actuary", "trésorier", "treasurer", "épargne", "savings"],
-    exclude: ["université", "university", "formation", "training", "blog", "article", "news", "agence événementielle", "event agency", "annuaire", "directory"]
+    includeStrong: ["finance", "assurance", "banque", "bank", "investment", "crédit", "loan", "fintech", "insurance", "capital", "investissement", "fonds", "fund", "actuaire", "trésorier", "courtier", "risk"],
+    includeWeak: ["credit", "économie", "fiscal", "épargne", "portefeuille"],
+    excludeStrong: ["université", "formation", "blog", "article", "news", "agence événementielle", "annuaire"]
   },
   "Santé & Pharma": {
-    include: ["santé", "health", "pharma", "médical", "medical", "clinic", "hospital", "hôpital", "pharmacie", "pharmacy", "dentiste", "dentist", "médecin", "physician", "infirmier", "nurse", "thérapie", "therapy", "diagnostic", "traitement", "treatment", "patient", "soins", "care", "ambulatoire", "outpatient", "laboratoire", "laboratory", "biopharmaceutique", "biopharmaceutical", "clinique"],
-    exclude: ["université", "university", "formation", "training", "blog", "article", "news", "agence", "agency"]
+    includeStrong: ["santé", "health", "pharma", "médical", "medical", "clinic", "hospital", "hôpital", "pharmacie", "pharmacy", "dentiste", "dentist", "médecin", "physician", "infirmier", "nurse", "thérapie", "thérapeutique", "diagnostic", "patient"],
+    includeWeak: ["wellness", "soins", "care", "laboratoire", "clinique"],
+    excludeStrong: ["université", "formation", "blog", "article", "news", "agence"]
   },
   "Gouvernement & Public": {
-    include: ["gouvernement", "government", "municipal", "municipalité", "ministère", "ministry", "public", "agence", "agency", "collectivité", "community", "politique", "policy"],
-    exclude: ["commercial", "profit", "privé", "private", "entreprise", "business", "compagnie", "company"]
+    includeStrong: ["gouvernement", "government", "municipal", "municipalité", "ministère", "ministry", "public", "collectivité", "agence gouvernementale", "policy", "politique"],
+    includeWeak: ["ville", "county", "région", "provincial"],
+    excludeStrong: ["commercial", "profit", "privé", "private", "entreprise", "business"]
   },
   "Éducation & Formation": {
-    include: ["université", "university", "collège", "college", "formation", "training", "education", "école", "school", "cours", "course", "apprentissage", "learning", "cegep", "professeur", "professor", "étudiant", "student", "campus", "diplôme", "degree"],
-    exclude: ["blog", "article", "news", "commercial", "business"]
+    includeStrong: ["université", "university", "collège", "college", "formation", "training", "éducation", "education", "école", "school", "cegep", "campus", "diplôme", "degree"],
+    includeWeak: ["cours", "cours", "apprentissage", "learning", "professeur", "étudiant"],
+    excludeStrong: ["commercial", "profit", "entreprise", "business", "blog", "article", "news"]
   },
   "Associations & OBNL": {
-    include: ["association", "obnl", "nonprofit", "non-profit", "fondation", "foundation", "organisme", "ong", "ngo", "caritative", "charitable", "bénévole", "volunteer", "mission", "cause", "social", "communautaire", "community"],
-    exclude: ["commercial", "profit", "entreprise", "business", "blog", "article", "news"]
+    includeStrong: ["association", "obnl", "nonprofit", "non-profit", "fondation", "foundation", "organisme", "ong", "ngo", "charitable", "bénévole"],
+    includeWeak: ["mission", "cause", "social", "communautaire", "community"],
+    excludeStrong: ["commercial", "profit", "entreprise", "business", "blog", "article", "news"]
   },
   "Immobilier": {
-    include: ["immobilier", "real estate", "propriété", "property", "construction", "bâtiment", "building", "promotion", "developer", "développeur", "logement", "housing", "bureau", "office", "terrain", "land", "hypothèque", "mortgage"],
-    exclude: ["université", "university", "école", "school", "blog", "article", "news"]
+    includeStrong: ["immobilier", "real estate", "propriété", "property", "construction", "bâtiment", "building", "promotion", "promoteur", "logement", "housing", "bureau", "office", "terrain"],
+    includeWeak: ["développement", "hypothèque", "agent immobilier"],
+    excludeStrong: ["université", "école", "blog", "article", "news", "agence événementielle"]
   },
   "Droit & Comptabilité": {
-    include: ["droit", "legal", "law", "comptabilité", "accounting", "notaire", "avocat", "lawyer", "fiscal", "tax", "audit", "compliance", "fiducie", "trust", "contrat", "contract", "juriste", "cabinet", "law firm"],
-    exclude: ["université", "university", "blog", "article", "news"]
+    includeStrong: ["droit", "legal", "law", "comptabilité", "accounting", "notaire", "avocat", "lawyer", "fiscal", "tax", "audit", "compliance", "fiducie", "trust", "cabinet jur"],
+    includeWeak: ["contrat", "contract", "juriste", "corporate"],
+    excludeStrong: ["université", "blog", "article", "news", "formation", "agence"]
   },
   "Industrie & Manufacture": {
-    include: ["manufacture", "usine", "factory", "production", "industriel", "industrial", "supply chain", "chaîne", "fournisseur", "supplier", "équipement", "equipment", "machinerie", "machinery", "assemblage", "assembly", "prototypage", "prototyping"],
-    exclude: ["agence", "agency", "blog", "article", "news"]
+    includeStrong: ["manufacture", "usine", "factory", "production", "industriel", "industrial", "supply chain", "fournisseur", "supplier", "équipement", "equipment", "machinerie", "machinery", "assemblage", "assembly"],
+    includeWeak: ["prototypage", "usinage", "atelier"],
+    excludeStrong: ["agence", "blog", "article", "news", "université", "formation"]
   },
   "Commerce de détail": {
-    include: ["retail", "commerce", "magasin", "store", "vente", "e-commerce", "boutique", "shop", "vendeur", "seller", "client", "customer", "point de vente", "pos", "merchandising", "inventory", "inventaire"],
-    exclude: ["blog", "article", "news", "agence", "agency"]
+    includeStrong: ["retail", "commerce", "magasin", "store", "vente", "e-commerce", "boutique", "shop", "point de vente", "merchandising", "inventory", "inventaire"],
+    includeWeak: ["vendeur", "seller", "client", "customer", "shopping"],
+    excludeStrong: ["blog", "article", "news", "agence", "formation", "université"]
   },
   "Transport & Logistique": {
-    include: ["transport", "logistique", "logistics", "livraison", "delivery", "fret", "freight", "distribution", "expédition", "shipping", "chauffeur", "driver", "camion", "truck", "entrepôt", "warehouse", "terminal", "tracking"],
-    exclude: ["agence", "agency", "blog", "article", "news"]
+    includeStrong: ["transport", "logistique", "logistics", "livraison", "delivery", "fret", "freight", "distribution", "expédition", "shipping", "chauffeur", "driver", "camion", "truck", "entrepôt", "warehouse"],
+    includeWeak: ["terminal", "tracking", "transitaire"],
+    excludeStrong: ["agence", "blog", "article", "news", "université", "formation"]
   }
 };
 
