@@ -435,11 +435,15 @@ Deno.serve(async (req) => {
           });
         }
       }
+    } else {
+      console.log(`[KB_TOPUP] SKIPPED: canRunKB=${canRunKB}, isTimeBudgetHit=${isTimeBudgetHit}, stopped=${stopped}`);
     }
 
     // Final status
     const finalProspects = await base44.entities.Prospect.filter({ campaignId });
     const finalStatus = (prospectCount >= targetCount) ? "COMPLETED" : "DONE_PARTIAL";
+    
+    console.log(`[FINAL] webFound=${prospectCount - kbTopupAdded}, kbAccepted=${kbTopupAdded}, finalTotal=${prospectCount}, target=${targetCount}, stopReason=${stopReason}, finalStatus=${finalStatus}`);
 
     errorMessage = stopReason === "BUDGET_GUARD"
       ? `Budget Brave atteint (${braveRequestsUsed}/${BRAVE_MAX_REQUESTS}). ${prospectCount} prospects trouvés.`
