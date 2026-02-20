@@ -544,7 +544,7 @@ Deno.serve(async (req) => {
     }
 
     // ════════════════════════════════════════════════════════════════════════════
-    // FINALIZE
+    // C) FINALIZE: FAILED uniquement si prospectCount == 0
     // ════════════════════════════════════════════════════════════════════════════
     const finalProspects = await base44.entities.Prospect.filter({ campaignId });
     let finalStatus;
@@ -553,14 +553,16 @@ Deno.serve(async (req) => {
       finalStatus = "DONE";
       console.log(`[FINAL] SUCCESS`);
     } else if (prospectCount > 0) {
+      // DONE_PARTIAL even if rate limit / time budget / budget guard
       finalStatus = "DONE_PARTIAL";
       if (requiredSectors.length > 0) suggestedNextStep = "RELAX_FILTERS";
       errorMessage = "Résultats insuffisants. Relâchez les filtres ou élargissez la géographie.";
-      console.log(`[FINAL] PARTIAL: found=${prospectCount}, target=${targetCount}`);
+      console.log(`[FINAL] PARTIAL: found=${prospectCount}, target=${targetCount}, stopReason=${stopReason}`);
     } else {
+      // FAILED only if 0 results total
       finalStatus = "FAILED";
       errorMessage = "Aucun prospect trouvé. Vérifiez vos critères de recherche.";
-      console.log(`[FINAL] FAILED`);
+      console.log(`[FINAL] FAILED: 0 prospects`);
     }
 
     console.log(`[FINAL] kbAccepted=${kbAccepted}, webAccepted=${webAccepted}, total=${prospectCount}/${targetCount}, status=${finalStatus}`);
