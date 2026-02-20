@@ -577,10 +577,14 @@ Deno.serve(async (req) => {
       skippedDuplicates: skippedDupe, filteredNonOrgCount, queriesRun: totalQueriesRun,
       braveRequestsUsed, braveMaxRequests: BRAVE_MAX_REQUESTS,
       brave429Count: braveRLState.count429, stopReason, webStopReason,
+      suggestedNextStep,
     },
     status: created > 0 ? "SUCCESS" : "ERROR",
     errorMessage: errorMsg,
   });
 
-  return Response.json({ success: created > 0, created, target, coverage: Math.round(created / target * 100), skippedDuplicates: skippedDupe, filteredNonOrgCount, stopReason });
+  return Response.json({ 
+    success: created > 0, created, target, coverage: Math.round(created / target * 100), 
+    skippedDuplicates: skippedDupe, filteredNonOrgCount, stopReason, suggestedNextStep 
+  });
 });
