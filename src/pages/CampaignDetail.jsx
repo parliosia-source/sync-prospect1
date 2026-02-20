@@ -367,31 +367,7 @@ export default function CampaignDetail() {
         ))}
       </div>
 
-      {/* Web vs KB source breakdown */}
-      {prospects.length > 0 && (() => {
-        const webCount = prospects.filter(p => !p.sourceOrigin || p.sourceOrigin === "WEB").length;
-        const kbCount  = prospects.filter(p => p.sourceOrigin === "KB_TOPUP").length;
-        if (kbCount === 0) return null;
-        return (
-          <div className="flex items-center gap-3 mb-4 text-xs text-slate-500 bg-white border rounded-xl px-4 py-2.5 shadow-sm">
-            <span className="font-medium text-slate-600">Sources :</span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block w-2 h-2 rounded-full bg-blue-400"></span>
-              Web : <strong className="text-slate-700">{webCount}</strong>
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block w-2 h-2 rounded-full bg-purple-400"></span>
-              KB : <strong className="text-slate-700">{kbCount}</strong>
-            </span>
-            {campaign?.toolUsage?.freshnessChecksDone > 0 && (
-              <span className="text-slate-400 ml-1">· {campaign.toolUsage.freshnessChecksDone} freshness checks</span>
-            )}
-            {campaign?.toolUsage?.brave429Count > 0 && (
-              <span className="text-amber-500 ml-1">· {campaign.toolUsage.brave429Count} retry 429</span>
-            )}
-          </div>
-        );
-      })()}
+      {/* Debug info hidden — sourceOrigin kept for internal use only */}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
