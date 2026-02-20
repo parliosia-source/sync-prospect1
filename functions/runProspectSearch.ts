@@ -219,35 +219,35 @@ async function waitForBraveReset(minWaitMs = 1000) {
   await new Promise(r => setTimeout(r, waitMs));
 }
 
-async function braveSearch(query, count = 20, offset = 0, retries = 3) {
+async function braveSearch(query, count = 20, offset = 0) {
   if (braveRLState.remaining === 0 && braveRLState.reset > 0) await waitForBraveReset();
   
   const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}&offset=${offset}&extra_snippets=true&country=ca`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000); // 12s timeout
+  const timeout = setTimeout(() => controller.abort(), 12000);
   
-  for (let attempt = 0; attempt < retries; attempt++) {
-    try {
-      const res = await fetch(url, {
-        headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY },
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      parseBraveHeaders(res);
-      
-      if (res.status === 429) {
-        braveRLState.count429++;
-        if (attempt < retries - 1) { await waitForBraveReset(Math.pow(2, attempt) * 1000); continue; }
-        return { results: [], rateLimited: true };
-      }
-      if (!res.ok) return { results: [], rateLimited: false };
-      if (braveRLState.remaining === 0) await waitForBraveReset();
-      
-      const data = await res.json();
-      return { results: data.web?.results || [], rateLimited: false };
-    } catch (e) {
-      clearTimeout(timeout);
-      if (e.name === "AbortError") return { results: [], rateLimited: true };
+  try {
+    const res = await fetch(url, {
+      headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    parseBraveHeaders(res);
+    
+    // 2) Brave 429: stop immediately, no retry
+    if (res.status === 429) {
+      braveRLState.count429++;
+      console.log(`[BRAVE] 429 RATE_LIMIT - stopping web fill`);
+      return { results: [], rateLimited: true };
+    }
+    if (!res.ok) return { results: [], rateLimited: false };
+    if (braveRLState.remaining === 0) await waitForBraveReset();
+    
+    const data = await res.json();
+    return { results: data.web?.results || [], rateLimited: false };
+  } catch (e) {
+    clearTimeout(timeout);
+    if (e.name === "AbortError") return { results: [], rateLimited: true };
       return { results: [], rateLimited: false };
     }
   }
