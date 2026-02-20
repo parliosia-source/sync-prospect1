@@ -214,7 +214,7 @@ function inferSectorsFromKb(kb) {
     const score = strongMatches + weakMatches;
     const hasExclude = (rules.excludeStrong || []).some(kw => text.includes(normText(kw)));
     
-    if (hasInclude && !hasExclude) {
+    if (score > 0 && !hasExclude) {
       matched.push(sector);
     }
   }
