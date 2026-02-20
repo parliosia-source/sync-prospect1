@@ -3,51 +3,11 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 const BRAVE_KEY   = Deno.env.get("BRAVE_API_KEY");
 const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
 
-// ── Brave rate-limit state ─────────────────────────────────────────────────────
-const braveRLState = { limit: -1, remaining: -1, reset: -1, count429: 0 };
-
-function parseBraveHeaders(res) {
-  const remaining = parseInt(res.headers.get("X-RateLimit-Remaining") || "-1", 10);
-  const reset     = parseInt(res.headers.get("X-RateLimit-Reset")     || "-1", 10);
-  const limit     = parseInt(res.headers.get("X-RateLimit-Limit")     || "-1", 10);
-  if (remaining !== -1) braveRLState.remaining = remaining;
-  if (reset     !== -1) braveRLState.reset     = reset;
-  if (limit     !== -1) braveRLState.limit     = limit;
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function normText(s) {
+  return (s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 }
 
-async function waitForBraveReset(minWaitMs = 1000) {
-  const waitMs = braveRLState.reset > 0
-    ? Math.max(braveRLState.reset * 1000, minWaitMs)
-    : minWaitMs;
-  await new Promise(r => setTimeout(r, waitMs));
-}
-
-async function braveSearch(query, count = 10, offset = 0, retries = 3) {
-  if (braveRLState.remaining === 0 && braveRLState.reset > 0) await waitForBraveReset();
-  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}&offset=${offset}&extra_snippets=true&country=ca&search_lang=fr`;
-  for (let attempt = 0; attempt < retries; attempt++) {
-    const res = await fetch(url, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY } });
-    parseBraveHeaders(res);
-    if (res.status === 429) {
-      braveRLState.count429++;
-      if (attempt < retries - 1) { await waitForBraveReset(Math.pow(2, attempt) * 1000); continue; }
-      return { results: [], rateLimited: true };
-    }
-    if (braveRLState.remaining === 0) await waitForBraveReset();
-    const data = await res.json();
-    return { results: data.web?.results || [], rateLimited: false };
-  }
-  return { results: [], rateLimited: true };
-}
-
-async function serpSearch(query, start = 0) {
-  const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(query)}&location=Canada&hl=fr&gl=ca&num=10&start=${start}&api_key=${SERPAPI_KEY}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  return data.organic_results || [];
-}
-
-// ── Domain helpers ─────────────────────────────────────────────────────────────
 const TWO_PART_TLDS = new Set(["qc.ca","co.ca","on.ca","bc.ca","ab.ca","mb.ca","nb.ca","ns.ca","nl.ca","pe.ca","sk.ca","co.uk","org.uk","me.uk"]);
 
 function getRegistrableDomain(hostname) {
@@ -86,18 +46,19 @@ const BLOCKED_DOMAINS = new Set([
   "journaldemontreal.com",
   "dropbox.com","notion.so","airtable.com","monday.com","hubspot.com",
   "salesforce.com","mailchimp.com","eventmanager.com",
+  "inc.com","crunchbase.com","clutch.co","themanifest.com","goodfirms.co","sortlist.com","g2.com","capterra.com",
 ]);
 
 const BLOCKED_URL_PATHS = /\/blog\/|\/news\/|\/press\/|\/article\/|\/articles\/|\/actualite\/|\/actualites\/|\/magazine\/|\/careers\/|\/carrieres\/|\/jobs\/|\/emplois\/|\/offres-emploi\/|\/salle-de-presse\/|\/communique\/|\/communiques\/|\/medias\/|\/presse\/|\/evenement\/|\/evenements\/|\/events\/|\/event\/|\/agenda\/|\/programme\/|\/inscription\/|\/register\/|\/actualite|\/nouvelles\/|\.pdf$/i;
 
-// ── Anti-bruit pré-LLM
+// ── Anti-bruit strengthened ────────────────────────────────────────────────────
 const ANTI_BRUIT = {
-  article: /\b(article|blog|news|press release|communiqué|actualit[eé]|magazine|news|guide complet|comment |pourquoi |top \d+|liste de|idées de|trending|répertoire|annuaire|directory|listing|database)\b/i,
-  calendar: /\b(calendar|agenda|événement|event|programme|program|inscription|register|archive|événements|archive)\b/i,
-  venue: /\b(centre de congrès|palais des congrès|meeting room|salle|venue|location|espace|réception|banquet|hôtel|hotel|resort|resort|airbnb|hotel|hospitality)\b/i,
+  article: /\b(article|blog|news|press release|communiqué|actualit[eé]|magazine|guide complet|comment |pourquoi |top \d+|liste de|idées de|trending|répertoire|annuaire|directory|listing|database)\b/i,
+  calendar: /\b(calendar|agenda|événement|event|programme|program|inscription|register|archive|événements|show|salon|expo|exposition|summit|congr[eè]s|conference|forum|webinar)\b/i,
+  venue: /\b(centre de congrès|palais des congrès|meeting room|salle|venue|location|espace|réception|banquet|hôtel|hotel|resort|airbnb|hospitality)\b/i,
   agency: /\b(agence événementielle|event planner|organisateur|event management|event agency|party planner|wedding|mariage|planificateur|event organizer)\b/i,
   directory: /\b(répertoire|annuaire|directory|listing|pages jaunes|yellow pages|fournisseur|supplier|catalog|catalogue)\b/i,
-  media: /\b(journal|newspaper|gazette|radio|tv|television|chaîne|channel|journal|presse|medias)\b/i,
+  media: /\b(journal|newspaper|gazette|radio|tv|television|chaîne|channel|presse|medias|honoree|award|awards|ranking|classement|palmar[eè]s)\b/i,
 };
 
 function shouldRejectByNoise(url, title, snippet) {
@@ -105,21 +66,84 @@ function shouldRejectByNoise(url, title, snippet) {
   return Object.values(ANTI_BRUIT).some(regex => regex.test(fullText));
 }
 
-// ── Normalization & Sector matching ─────────────────────────────────────────────
+// ── Sector keywords (expanded) ─────────────────────────────────────────────────
 const SECTOR_KEYWORDS = {
-  "Technologie": ["tech", "software", "cloud", "digital", "cybersécurité", "ai", "intelligence", "data", "web", "app", "informatique"],
-  "Finance & Assurance": ["assurance", "finance", "banque", "loan", "investment", "wealth", "insurance", "fintech", "crypto", "immobilier"],
-  "Santé & Pharma": ["santé", "health", "pharma", "medical", "pharmacy", "clinic", "hospital", "thérapie", "médecin"],
-  "Gouvernement & Public": ["gouvernement", "municipality", "government", "admin", "public", "state", "fédéral"],
-  "Éducation & Formation": ["école", "université", "formation", "training", "education", "learning", "académie", "collège"],
-  "Associations & OBNL": ["association", "obnl", "non-profit", "charity", "organisme", "fondation"],
-  "Immobilier": ["immobilier", "réaltor", "developer", "property", "real estate", "construction", "real estate"],
-  "Droit & Comptabilité": ["cabinet", "attorney", "lawyer", "comptable", "accounting", "law", "notaire"],
-  "Industrie & Manufacture": ["manufacture", "factory", "industrial", "usine", "production", "équipement"],
-  "Commerce de détail": ["retail", "magasin", "commerce", "boutique", "store", "distribution"],
-  "Transport & Logistique": ["transport", "logistique", "shipping", "freight", "courier", "livraison", "distribution"],
+  "Technologie": ["technologie","technology","tech","logiciel","software","saas","numérique","numerique","informatique","it","cloud","cybersecurity","cybersécurité","data","ai","intelligence artificielle","application","développement","developer","web"],
+  "Finance & Assurance": ["assurance","finance","banque","loan","investment","wealth","insurance","fintech","crypto","immobilier"],
+  "Santé & Pharma": ["santé","health","pharma","medical","pharmacy","clinic","hospital","thérapie","médecin"],
+  "Gouvernement & Public": ["gouvernement","municipality","government","admin","public","state","fédéral"],
+  "Éducation & Formation": ["école","université","formation","training","education","learning","académie","collège"],
+  "Associations & OBNL": ["association","obnl","non-profit","charity","organisme","fondation"],
+  "Immobilier": ["immobilier","réaltor","developer","property","real estate","construction"],
+  "Droit & Comptabilité": ["cabinet","attorney","lawyer","comptable","accounting","law","notaire"],
+  "Industrie & Manufacture": ["manufacture","factory","industrial","usine","production","équipement"],
+  "Commerce de détail": ["retail","magasin","commerce","boutique","store","distribution"],
+  "Transport & Logistique": ["transport","logistique","shipping","freight","courier","livraison"],
 };
 
+function inferSectorsFromKb(kb) {
+  const text = normText(`${kb.name || ""} ${kb.notes || ""} ${(kb.tags || []).join(" ")}`);
+  const matched = [];
+  for (const [sector, keywords] of Object.entries(SECTOR_KEYWORDS)) {
+    if (keywords.some(kw => text.includes(kw))) {
+      matched.push(sector);
+    }
+  }
+  return matched;
+}
+
+// ── Search APIs ────────────────────────────────────────────────────────────────
+const braveRLState = { remaining: -1, reset: -1, count429: 0 };
+
+function parseBraveHeaders(res) {
+  const remaining = parseInt(res.headers.get("X-RateLimit-Remaining") || "-1", 10);
+  const reset     = parseInt(res.headers.get("X-RateLimit-Reset")     || "-1", 10);
+  if (remaining !== -1) braveRLState.remaining = remaining;
+  if (reset     !== -1) braveRLState.reset     = reset;
+}
+
+async function waitForBraveReset(minWaitMs = 1000) {
+  const waitMs = braveRLState.reset > 0 ? Math.max(braveRLState.reset * 1000, minWaitMs) : minWaitMs;
+  await new Promise(r => setTimeout(r, waitMs));
+}
+
+async function braveSearch(query, count = 20, offset = 0, retries = 3) {
+  if (braveRLState.remaining === 0 && braveRLState.reset > 0) await waitForBraveReset();
+  
+  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}&offset=${offset}&extra_snippets=true&country=ca`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000); // 12s timeout
+  
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      parseBraveHeaders(res);
+      
+      if (res.status === 429) {
+        braveRLState.count429++;
+        if (attempt < retries - 1) { await waitForBraveReset(Math.pow(2, attempt) * 1000); continue; }
+        return { results: [], rateLimited: true };
+      }
+      if (!res.ok) return { results: [], rateLimited: false };
+      if (braveRLState.remaining === 0) await waitForBraveReset();
+      
+      const data = await res.json();
+      return { results: data.web?.results || [], rateLimited: false };
+    } catch (e) {
+      clearTimeout(timeout);
+      if (e.name === "AbortError") return { results: [], rateLimited: true };
+      return { results: [], rateLimited: false };
+    }
+  }
+  clearTimeout(timeout);
+  return { results: [], rateLimited: true };
+}
+
+// ── Normalization ──────────────────────────────────────────────────────────────
 async function normalizeResult(r, requiredSectors) {
   try {
     const url = r.url || "";
@@ -130,7 +154,8 @@ async function normalizeResult(r, requiredSectors) {
     const domain = getRegistrableDomain(new URL(url).hostname);
     if (BLOCKED_DOMAINS.has(domain)) return { isValid: false };
 
-    const fullText = `${title} ${snippet}`.toLowerCase();
+    // Match sectors from fullText (title + snippet + url + domain)
+    const fullText = `${title} ${snippet} ${url} ${domain}`.toLowerCase();
     let sectorMatch = false;
     let matchedSectors = [];
 
@@ -164,7 +189,7 @@ async function normalizeResult(r, requiredSectors) {
   }
 }
 
-// ── Query builders ──────────────────────────────────────────────────────────────
+// ── Query builders ────────────────────────────────────────────────────────────
 const EXCL = '-site:linkedin.com -site:facebook.com -site:glassdoor.com -site:indeed.com -site:eventbrite.com -site:wikipedia.org -filetype:pdf';
 
 function buildQueryVariants(campaign, loc) {
@@ -213,7 +238,7 @@ function buildQueryVariants(campaign, loc) {
   return [...new Set(queries)].filter(q => q.length > 5);
 }
 
-// ── Main Handler ────────────────────────────────────────────────────────────────
+// ── Main Handler ───────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
@@ -231,11 +256,10 @@ Deno.serve(async (req) => {
   }
 
   const START_TIME = Date.now();
-  const MAX_DURATION_MS = 90 * 1000; // 90 sec global cap
+  const MAX_DURATION_MS = 90 * 1000;
   const APP_SETTINGS = (await base44.entities.AppSettings.filter({ settingsId: "global" }) || [{}])[0] || {};
   const KB_ENABLED = APP_SETTINGS.enableKbTopUp !== false;
 
-  let prospectCount = 0;
   let progressPct = 0;
   let errorMessage = null;
   let suggestedNextStep = null;
@@ -243,42 +267,69 @@ Deno.serve(async (req) => {
   let webAccepted = 0;
   let kbAccepted = 0;
   let braveRequestsUsed = 0;
-  const existingDomains = new Set();
+
   const locQuery = campaign.locationQuery || "Montréal, QC";
   const requiredSectors = campaign.industrySectors || [];
   const targetCount = campaign.targetCount || 50;
 
-  await base44.entities.Campaign.update(campaignId, {
-    status: "RUNNING",
-    progressPct: 5,
-    errorMessage: null,
-    lastRunAt: new Date().toISOString(),
-    toolUsage: { kbAccepted: 0, webAccepted: 0, braveRequestsUsed: 0, brave429Count: 0 },
-  });
+  // ════════════════════════════════════════════════════════════════════════════
+  // B1) Load existing prospects (dedup)
+  // ════════════════════════════════════════════════════════════════════════════
+  const existingProspects = await base44.entities.Prospect.filter({ campaignId }, "-created_date", 2000).catch(() => []);
+  const existingDomains = new Set(existingProspects.map(p => (p.domain || "").replace(/^www\./, "").toLowerCase()));
+  let prospectCount = existingProspects.length;
+
+  console.log(`[START] campaignId=${campaignId}, target=${targetCount}, existing=${prospectCount}, requiredSectors=${requiredSectors.join(",")}`);
+
+  // If already at target, finalize
+  if (prospectCount >= targetCount) {
+    const finalProspects = await base44.entities.Prospect.filter({ campaignId });
+    await base44.entities.Campaign.update(campaignId, {
+      status: "DONE",
+      progressPct: 100,
+      countProspects: finalProspects.length,
+      countAnalyzed: finalProspects.filter(p => ["ANALYSÉ","QUALIFIÉ","REJETÉ","EXPORTÉ"].includes(p.status)).length,
+      countQualified: finalProspects.filter(p => p.status === "QUALIFIÉ").length,
+      countRejected: finalProspects.filter(p => p.status === "REJETÉ").length,
+    });
+    return Response.json({ success: true, campaignId, prospectCount, status: "DONE", skipReason: "ALREADY_AT_TARGET" });
+  }
 
   try {
-    // ═══════════════════════════════════════════════════════════════════
-    // PHASE 1: KB_FILL (Knowledge Base first)
-    // ═══════════════════════════════════════════════════════════════════
-    console.log(`[KB_FILL] START: target=${targetCount}, sectors=${requiredSectors.join(",")}, location=${locQuery}`);
+    // ════════════════════════════════════════════════════════════════════════════
+    // PHASE 1: KB_FILL
+    // ════════════════════════════════════════════════════════════════════════════
+    console.log(`[KB_FILL] START`);
 
-    const kbAll = await base44.entities.KBEntity.list("-updated_date", 500);
+    // B2) Extended KB query (2000 instead of 500)
+    const kbAll = await base44.entities.KBEntity.filter({}, "-updated_date", 2000).catch(async () => {
+      // Fallback to list if filter fails
+      return await base44.entities.KBEntity.list("-updated_date", 2000).catch(() => []);
+    });
     console.log(`[KB_FILL] candidates_total=${kbAll.length}`);
 
-    const locCity = locQuery.split(",")[0].toLowerCase().trim();
+    // B3) Location matching (Quebec/Montréal robust)
+    const locNorm = normText(locQuery);
+    const wantQC = /\b(qc|quebec)\b/.test(locNorm);
+    const cityNorm = normText(locQuery.split(",")[0]);
+
     const kbCandidates = kbAll
       .filter(e => {
         if (existingDomains.has((e.domain || "").toLowerCase())) return false;
         if (!e.domain || !e.website || !e.name) return false;
-        const locE = (e.hqLocation || "").toLowerCase();
-        if (locCity && !locE.includes(locCity) && !locE.includes("canada")) return false;
+        
+        const eLoc = normText(e.hqLocation || "");
+        if (wantQC) {
+          if (!(eLoc.includes("qc") || eLoc.includes("quebec") || eLoc.includes(cityNorm))) return false;
+        } else if (cityNorm && !eLoc.includes(cityNorm)) {
+          return false;
+        }
         return true;
       })
-      .sort(() => Math.random() - 0.5); // Shuffle
+      .sort(() => Math.random() - 0.5);
 
     console.log(`[KB_FILL] candidates_filtered=${kbCandidates.length}`);
 
-    // Accept KB until target reached
     for (const kb of kbCandidates) {
       if (Date.now() - START_TIME > MAX_DURATION_MS) { stopReason = "TIME_BUDGET"; break; }
       if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
@@ -286,19 +337,20 @@ Deno.serve(async (req) => {
       const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
       if (existingDomains.has(domNorm)) continue;
 
-      // STRICT sector matching
+      // B4) KB sector strict: infer if empty
+      const rawKbSectors = Array.isArray(kb.industrySectors) ? kb.industrySectors : [];
+      const kbSectors = rawKbSectors.length > 0 ? rawKbSectors : inferSectorsFromKb(kb);
+
       let matchedSectors = [];
-      const kbSectors = Array.isArray(kb.industrySectors) ? kb.industrySectors : [];
-      
       if (requiredSectors.length > 0) {
         const match = kbSectors.some(s => requiredSectors.includes(s));
         if (!match) {
-          console.log(`[KB_FILL] REJECT (sector): ${kb.name}, kbSectors=${kbSectors.join(",")}`);
+          console.log(`[KB_FILL] REJECT sector: ${kb.name}`);
           continue;
         }
         matchedSectors = kbSectors.filter(s => requiredSectors.includes(s));
       } else {
-        matchedSectors = kbSectors.length > 0 ? kbSectors : [];
+        matchedSectors = kbSectors;
       }
 
       // Create prospect
@@ -324,9 +376,10 @@ Deno.serve(async (req) => {
       kbAccepted++;
       prospectCount++;
 
+      // B8) Progress updates every 5
       if (kbAccepted % 5 === 0) {
         progressPct = Math.min(45, Math.round((kbAccepted / Math.max(10, targetCount)) * 45));
-        console.log(`[KB_FILL] ACCEPT #${kbAccepted}: ${kb.name}, total=${prospectCount}/${targetCount}, progress=${progressPct}%`);
+        console.log(`[KB_FILL] ACCEPT #${kbAccepted}, total=${prospectCount}, progress=${progressPct}%`);
         await base44.entities.Campaign.update(campaignId, {
           progressPct,
           countProspects: prospectCount,
@@ -335,17 +388,20 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`[KB_FILL] END: accepted=${kbAccepted}, foundCount=${prospectCount}, stopReason=${stopReason}`);
+    console.log(`[KB_FILL] END: accepted=${kbAccepted}, total=${prospectCount}, stopReason=${stopReason}`);
 
-    // ═══════════════════════════════════════════════════════════════════
-    // PHASE 2: WEB_FILL (fallback if KB insufficient)
-    // ═══════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════════
+    // PHASE 2: WEB_FILL (fallback)
+    // ════════════════════════════════════════════════════════════════════════════
     const kbCoveragePercent = prospectCount > 0 ? Math.round((kbAccepted / targetCount) * 100) : 0;
-    const BRAVE_MAX_REQUESTS = kbCoveragePercent >= 70 ? 30 : 100;
+    
+    // B5) Adaptive Brave budget
+    const remaining = targetCount - prospectCount;
+    const BRAVE_MAX_REQUESTS = kbCoveragePercent >= 70 ? 30 : Math.min(250, Math.max(120, remaining * 2));
     const needsWebFill = prospectCount < targetCount && !stopReason;
 
     if (needsWebFill) {
-      console.log(`[WEB_FILL] START: kbCoverage=${kbCoveragePercent}%, maxBraveRequests=${BRAVE_MAX_REQUESTS}, remaining=${targetCount - prospectCount}`);
+      console.log(`[WEB_FILL] START: kbCoverage=${kbCoveragePercent}%, maxBraveRequests=${BRAVE_MAX_REQUESTS}, remaining=${remaining}`);
 
       const queriesRaw = buildQueryVariants(campaign, locQuery);
       const BRAVE_MAX_PAGES_PER_QUERY = 6;
@@ -363,8 +419,8 @@ Deno.serve(async (req) => {
           if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
           if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { stopReason = "BUDGET_GUARD"; break; }
 
-          const offset = pageIdx * 10;
-          const { results, rateLimited } = await braveSearch(query, 10, offset);
+          const offset = pageIdx * 20;
+          const { results, rateLimited } = await braveSearch(query, 20, offset); // B5) count=20
           braveRequestsUsed++;
 
           if (rateLimited) { stopReason = "BRAVE_RATE_LIMITED"; break; }
@@ -405,41 +461,42 @@ Deno.serve(async (req) => {
             prospectCount++;
           }
 
-          progressPct = Math.min(85, 45 + Math.round((webAccepted / Math.max(10, targetCount - kbAccepted)) * 40));
-          await base44.entities.Campaign.update(campaignId, {
-            progressPct,
-            countProspects: prospectCount,
-            toolUsage: { kbAccepted, webAccepted, braveRequestsUsed },
-          });
+          // B8) Progress updates every 10 web accepted
+          if (webAccepted % 10 === 0 || (prospectCount % 5 === 0 && webAccepted > 0)) {
+            progressPct = Math.min(85, 45 + Math.round((webAccepted / Math.max(10, remaining)) * 40));
+            await base44.entities.Campaign.update(campaignId, {
+              progressPct,
+              countProspects: prospectCount,
+              toolUsage: { kbAccepted, webAccepted, braveRequestsUsed },
+            });
+          }
         }
         if (stopReason) break;
       }
 
       console.log(`[WEB_FILL] END: accepted=${webAccepted}, total=${prospectCount}, stopReason=${stopReason}`);
     } else {
-      console.log(`[WEB_FILL] SKIPPED: needsWebFill=${needsWebFill}, stopReason=${stopReason}`);
+      console.log(`[WEB_FILL] SKIPPED`);
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // FINALIZE STATUS
-    // ═══════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════════
+    // FINALIZE
+    // ════════════════════════════════════════════════════════════════════════════
     const finalProspects = await base44.entities.Prospect.filter({ campaignId });
     let finalStatus;
 
     if (prospectCount >= targetCount) {
       finalStatus = "DONE";
-      console.log(`[FINAL] SUCCESS: targetReached`);
+      console.log(`[FINAL] SUCCESS`);
     } else if (prospectCount > 0) {
       finalStatus = "DONE_PARTIAL";
-      if (requiredSectors.length > 0) {
-        suggestedNextStep = "RELAX_FILTERS";
-      }
+      if (requiredSectors.length > 0) suggestedNextStep = "RELAX_FILTERS";
       errorMessage = "Résultats insuffisants. Relâchez les filtres ou élargissez la géographie.";
-      console.log(`[FINAL] PARTIAL: found=${prospectCount}, target=${targetCount}, suggestedNextStep=${suggestedNextStep}`);
+      console.log(`[FINAL] PARTIAL: found=${prospectCount}, target=${targetCount}`);
     } else {
       finalStatus = "FAILED";
       errorMessage = "Aucun prospect trouvé. Vérifiez vos critères de recherche.";
-      console.log(`[FINAL] FAILED: found=0`);
+      console.log(`[FINAL] FAILED`);
     }
 
     console.log(`[FINAL] kbAccepted=${kbAccepted}, webAccepted=${webAccepted}, total=${prospectCount}/${targetCount}, status=${finalStatus}`);
@@ -473,7 +530,6 @@ Deno.serve(async (req) => {
         total: prospectCount,
         target: targetCount,
         stopReason,
-        finalStatus,
       },
       status: finalStatus === "FAILED" ? "ERROR" : "SUCCESS",
       errorMessage: finalStatus === "FAILED" ? errorMessage : null,
@@ -490,7 +546,7 @@ Deno.serve(async (req) => {
     });
 
   } catch (error) {
-    console.error("[SEARCH_ERROR]", error.message);
+    console.error("[ERROR]", error.message);
     const errorMsg = error.message || "Erreur lors de la recherche";
     
     await base44.entities.Campaign.update(campaignId, {
