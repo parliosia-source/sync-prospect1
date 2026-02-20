@@ -1,6 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
-// ── Sector Rules (simplified from runProspectSearch) ──────────────────────────
 const SECTOR_RULES = {
   "Technologie": {
     includeStrong: ["logiciel", "software", "saas", "cloud", "ia", "ai", "digital", "tech", "cybersecurity", "sécurité", "développement", "development", "startup", "innovation", "données", "data"],
@@ -67,48 +66,37 @@ function normText(t) {
 
 function matchSectorsBackfill(fullText, sectors) {
   const matched = [];
-  const scores = {};
 
   for (const sector of sectors) {
     const rules = SECTOR_RULES[sector];
     if (!rules) continue;
 
-    // Quick fail: strong global exclude
-    if (STRONG_GLOBAL_EXCLUDES.test(fullText)) {
-      scores[sector] = -10;
-      continue;
-    }
+    if (STRONG_GLOBAL_EXCLUDES.test(fullText)) continue;
 
     let score = 0;
     const textNorm = normText(fullText);
 
-    // Include strong (+2 each)
     for (const kw of rules.includeStrong) {
       const count = (textNorm.match(new RegExp(`\\b${normText(kw)}\\b`, "g")) || []).length;
       score += count * 2;
     }
 
-    // Include weak (+1 each)
     for (const kw of rules.includeWeak) {
       const count = (textNorm.match(new RegExp(`\\b${normText(kw)}\\b`, "g")) || []).length;
       score += count * 1;
     }
 
-    // Exclude strong (-3 each)
     for (const kw of rules.excludeStrong) {
       const count = (textNorm.match(new RegExp(`\\b${normText(kw)}\\b`, "g")) || []).length;
       score -= count * 3;
     }
 
-    scores[sector] = score;
-
-    // THRESHOLD = 3 minimum confidence
     if (score >= 3) {
       matched.push(sector);
     }
   }
 
-  return { matched, scores };
+  return matched;
 }
 
 Deno.serve(async (req) => {
@@ -120,7 +108,7 @@ Deno.serve(async (req) => {
   }
 
   const body = await req.json().catch(() => ({}));
-  const dryRun = body.dryRun !== false; // default true
+  const dryRun = body.dryRun !== false;
   const limit = body.limit || 500;
 
   console.log(`[BACKFILL] START: dryRun=${dryRun}, limit=${limit}`);
@@ -133,12 +121,10 @@ Deno.serve(async (req) => {
   const bySector = {};
   const sampleUpdated = [];
 
-  // Initialize sector counts
   sectors.forEach(s => {
     bySector[s] = 0;
   });
 
-  // Paginate KBEntity
   let page = 0;
   const pageSize = 500;
 
@@ -156,24 +142,19 @@ Deno.serve(async (req) => {
     for (const kb of batch) {
       scanned++;
 
-      // Skip if already filled
       if (Array.isArray(kb.industrySectors) && kb.industrySectors.length > 0) {
         skippedAlreadyFilled++;
         continue;
       }
 
-      // Build full text
       const fullText = [
         kb.name || "",
         kb.domain || "",
         (Array.isArray(kb.tags) ? kb.tags.join(" ") : ""),
         kb.notes || "",
-      ]
-        .join(" ")
-        .toLowerCase();
+      ].join(" ").toLowerCase();
 
-      // Match sectors
-      const { matched } = matchSectorsBackfill(fullText, sectors);
+      const matched = matchSectorsBackfill(fullText, sectors);
 
       if (matched.length === 0) {
         skippedLowConfidence++;
@@ -182,12 +163,10 @@ Deno.serve(async (req) => {
 
       updated++;
 
-      // Track by sector
       matched.forEach(s => {
         bySector[s]++;
       });
 
-      // Collect sample (first 10)
       if (sampleUpdated.length < 10) {
         sampleUpdated.push({
           domain: kb.domain,
@@ -197,7 +176,6 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Update if not dryRun
       if (!dryRun) {
         await base44.asServiceRole.entities.KBEntity.update(kb.id, {
           industrySectors: matched,
@@ -210,12 +188,12 @@ Deno.serve(async (req) => {
       if (scanned >= limit) {
         console.log(`[BACKFILL] limit reached: scanned=${scanned}`);
         break;
+      }
     }
 
     if (scanned >= limit) break;
     page++;
 
-    // Safety: stop after 20 pages
     if (page >= 20) {
       console.log(`[BACKFILL] safety stop: page=${page}`);
       break;
