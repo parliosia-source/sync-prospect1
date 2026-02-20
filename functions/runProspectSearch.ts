@@ -439,12 +439,31 @@ Deno.serve(async (req) => {
     // ════════════════════════════════════════════════════════════════════════════
     console.log(`[KB_FILL] START`);
 
-    // B2) Extended KB query (2000 instead of 500)
-    const kbAll = await base44.entities.KBEntity.filter({}, "-updated_date", 2000).catch(async () => {
-      // Fallback to list if filter fails
-      return await base44.entities.KBEntity.list("-updated_date", 2000).catch(() => []);
-    });
-    console.log(`[KB_FILL] candidates_total=${kbAll.length}`);
+    // B2) Paginated KB query (robustly fetch all available)
+    let kbAll = [];
+    let kbPage = 0;
+    const kbPageSize = 500;
+    while (true) {
+      const batch = await base44.asServiceRole.entities.KBEntity.list(
+        '-updated_date',
+        kbPageSize,
+        kbPage * kbPageSize
+      ).catch(() => []);
+      
+      if (!batch || batch.length === 0) break;
+      kbAll = kbAll.concat(batch);
+      console.log(`[KB_FILL] page=${kbPage} loaded=${batch.length} total_so_far=${kbAll.length}`);
+      
+      if (batch.length < kbPageSize) break;
+      kbPage++;
+      
+      // Safety: stop after 20 pages (10k entities) or if time budget exceeded
+      if (kbPage >= 20 || Date.now() - START_TIME > MAX_DURATION_MS * 0.3) {
+        console.log(`[KB_FILL] pagination halted: page=${kbPage}, time_budget_check`);
+        break;
+      }
+    }
+    console.log(`[KB_FILL] candidates_total=${kbAll.length} from ${kbPage + 1} pages`);
 
     // B3) Location matching (Quebec/Montréal robust)
     const locNorm = normText(locQuery);
