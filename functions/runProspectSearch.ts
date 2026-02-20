@@ -153,20 +153,60 @@ async function normalizeResult(r, requiredSectors = []) {
 const EXCL = '-site:linkedin.com -site:facebook.com -site:glassdoor.com -site:indeed.com -site:eventbrite.com -site:wikipedia.org -filetype:pdf';
 
 function buildQueryVariants(campaign, loc) {
-  const sector = (campaign.industrySectors || []).slice(0, 3).map(s => `"${s}"`).join(" ");
+  const sectors = (campaign.industrySectors || []).slice(0, 3);
+  const sectorsFR = sectors.map(s => `"${s}"`).join(" ");
   const kws = (campaign.keywords || []).join(" ");
   const locQ = loc.split(",")[0].trim();
   const locAll = [locQ, `"${locQ}"`, loc].filter(Boolean);
 
   const queries = [];
+
+  // ─────────────────────────────────────────────────────────────────
+  // A — DIRECT COMPANIES/ORGS (100% business-first)
+  // ─────────────────────────────────────────────────────────────────
+  const companyTermsFR = ["entreprises", "sociétés", "compagnies", "organisations", "cabinet", "firmes", "manufacturier"];
+  const companyTermsEN = ["companies", "firms", "manufacturers", "organizations"];
+
   for (const l of locAll) {
-    const base = `${sector} conférence OU congrès OU "assemblée générale" ${l} organisation entreprise ${kws} ${EXCL}`;
-    queries.push(
-      `${base}`,
-      `gala OR "soirée corporative" ${l} ${sector} ${kws} ${EXCL}`,
-      `"événement annuel" OR "réunion annuelle" ${l} ${sector} ${kws} ${EXCL}`,
-      `${kws} ${l} gala OR congrès OR "assemblée générale" ${EXCL}`,
-    );
+    // FR variants
+    for (const term of companyTermsFR) {
+      queries.push(`${term} ${sectorsFR} ${l} ${kws} ${EXCL}`);
+      if (sectors.length === 1) {
+        queries.push(`${term} ${sectors[0]} ${l} ${EXCL}`);
+      }
+    }
+    // EN variants
+    for (const term of companyTermsEN) {
+      queries.push(`${term} ${sectorsFR} ${l} ${kws} ${EXCL}`);
+      if (sectors.length === 1) {
+        queries.push(`${term} ${sectors[0]} ${l} ${EXCL}`);
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // B — INDUSTRY CLUSTERS / ECOSYSTEMS
+  // ─────────────────────────────────────────────────────────────────
+  for (const l of locAll) {
+    queries.push(`grappe ${sectorsFR} ${l} ${EXCL}`);
+    queries.push(`ecosystem ${sectorsFR} ${l} ${EXCL}`);
+    queries.push(`cluster ${sectorsFR} ${l} ${EXCL}`);
+    if (sectors.length === 1) {
+      queries.push(`${sectors[0]} entreprises ${l} ${EXCL}`);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // C — ASSOCIATIONS / MEMBERS
+  // ─────────────────────────────────────────────────────────────────
+  for (const l of locAll) {
+    queries.push(`association ${sectorsFR} ${l} membres ${EXCL}`);
+    queries.push(`${sectorsFR} association ${l} members ${EXCL}`);
+    queries.push(`${sectorsFR} chamber ${l} members ${EXCL}`);
+    if (sectors.length === 1) {
+      queries.push(`association ${sectors[0]} ${l} membres ${EXCL}`);
+      queries.push(`chamber ${sectors[0]} Quebec members ${EXCL}`);
+    }
   }
 
   return [...new Set(queries)].filter(q => q.length > 5);
