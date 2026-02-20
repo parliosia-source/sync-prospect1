@@ -23,6 +23,9 @@ export default function Admin() {
   const [logs, setLogs] = useState([]);
   const [editingTemplate, setEditingTemplate] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [kbStats, setKbStats] = useState(null);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
+  const [backfillStats, setBackfillStats] = useState(null);
 
   useEffect(() => {
     base44.auth.me().then(u => {
@@ -34,6 +37,7 @@ export default function Admin() {
   useEffect(() => {
     if (activeTab === "templates") loadTemplates();
     if (activeTab === "settings") loadSettings();
+    if (activeTab === "maintenance") loadMaintenance();
     if (activeTab === "logs") loadLogs();
   }, [activeTab]);
 
