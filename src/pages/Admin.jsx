@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
-import { Settings, FileText, Database, Activity, Plus, Edit2, Save, X, RefreshCw } from "lucide-react";
+import { Settings, FileText, Database, Activity, Plus, Edit2, Save, X, RefreshCw, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 const TABS = [
   { id: "templates", label: "Templates", icon: FileText },
   { id: "settings", label: "Paramètres", icon: Settings },
+  { id: "maintenance", label: "Maintenance", icon: Zap },
   { id: "logs", label: "Logs", icon: Activity },
 ];
 
