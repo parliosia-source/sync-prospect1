@@ -107,26 +107,81 @@ function shouldRejectByNoise(url, title, snippet) {
   return Object.values(ANTI_BRUIT).some(regex => regex.test(fullText));
 }
 
-// ── Sector keywords (expanded) ─────────────────────────────────────────────────
-const SECTOR_KEYWORDS = {
-  "Technologie": ["technologie","technology","tech","logiciel","software","saas","numérique","numerique","informatique","it","cloud","cybersecurity","cybersécurité","data","ai","intelligence artificielle","application","développement","developer","web"],
-  "Finance & Assurance": ["assurance","finance","banque","loan","investment","wealth","insurance","fintech","crypto","immobilier"],
-  "Santé & Pharma": ["santé","health","pharma","medical","pharmacy","clinic","hospital","thérapie","médecin"],
-  "Gouvernement & Public": ["gouvernement","municipality","government","admin","public","state","fédéral"],
-  "Éducation & Formation": ["école","université","formation","training","education","learning","académie","collège"],
-  "Associations & OBNL": ["association","obnl","non-profit","charity","organisme","fondation"],
-  "Immobilier": ["immobilier","réaltor","developer","property","real estate","construction"],
-  "Droit & Comptabilité": ["cabinet","attorney","lawyer","comptable","accounting","law","notaire"],
-  "Industrie & Manufacture": ["manufacture","factory","industrial","usine","production","équipement"],
-  "Commerce de détail": ["retail","magasin","commerce","boutique","store","distribution"],
-  "Transport & Logistique": ["transport","logistique","shipping","freight","courier","livraison"],
+// ── SECTOR_RULES: Strict include/exclude for all sectors ──────────────────────
+const SECTOR_RULES = {
+  "Technologie": {
+    include: ["software", "tech", "informatique", "données", "data", "ai", "ia", "cloud", "cybersecurity", "cybersécurité", "logiciel", "digital", "saas", "application", "développement", "development", "it", "startup tech", "plateforme", "platform", "système", "system", "infrastructure", "programmation", "coding", "javascript", "python", "java", "devops", "database"],
+    exclude: ["agence", "agency", "cours en ligne", "online course", "formation", "training", "webinaire", "webinar", "annuaire", "directory", "listing", "université", "university", "collège", "college", "école", "school", "blog", "article", "news"]
+  },
+  "Finance & Assurance": {
+    include: ["finance", "assurance", "banque", "bank", "investment", "crédit", "loan", "fintech", "insurance", "courtage", "brokerage", "capital", "investissement", "fonds", "fund", "obligataire", "bond", "portefeuille", "portfolio", "risque", "risk", "actuaire", "actuary", "trésorier", "treasurer", "épargne", "savings"],
+    exclude: ["université", "university", "formation", "training", "blog", "article", "news", "agence événementielle", "event agency", "annuaire", "directory"]
+  },
+  "Santé & Pharma": {
+    include: ["santé", "health", "pharma", "médical", "medical", "clinic", "hospital", "hôpital", "pharmacie", "pharmacy", "dentiste", "dentist", "médecin", "physician", "infirmier", "nurse", "thérapie", "therapy", "diagnostic", "traitement", "treatment", "patient", "soins", "care", "ambulatoire", "outpatient", "laboratoire", "laboratory", "biopharmaceutique", "biopharmaceutical", "clinique"],
+    exclude: ["université", "university", "formation", "training", "blog", "article", "news", "agence", "agency"]
+  },
+  "Gouvernement & Public": {
+    include: ["gouvernement", "government", "municipal", "municipalité", "ministère", "ministry", "public", "agence", "agency", "collectivité", "community", "politique", "policy"],
+    exclude: ["commercial", "profit", "privé", "private", "entreprise", "business", "compagnie", "company"]
+  },
+  "Éducation & Formation": {
+    include: ["université", "university", "collège", "college", "formation", "training", "education", "école", "school", "cours", "course", "apprentissage", "learning", "cegep", "professeur", "professor", "étudiant", "student", "campus", "diplôme", "degree"],
+    exclude: ["blog", "article", "news", "commercial", "business"]
+  },
+  "Associations & OBNL": {
+    include: ["association", "obnl", "nonprofit", "non-profit", "fondation", "foundation", "organisme", "ong", "ngo", "caritative", "charitable", "bénévole", "volunteer", "mission", "cause", "social", "communautaire", "community"],
+    exclude: ["commercial", "profit", "entreprise", "business", "blog", "article", "news"]
+  },
+  "Immobilier": {
+    include: ["immobilier", "real estate", "propriété", "property", "construction", "bâtiment", "building", "promotion", "developer", "développeur", "logement", "housing", "bureau", "office", "terrain", "land", "hypothèque", "mortgage"],
+    exclude: ["université", "university", "école", "school", "blog", "article", "news"]
+  },
+  "Droit & Comptabilité": {
+    include: ["droit", "legal", "law", "comptabilité", "accounting", "notaire", "avocat", "lawyer", "fiscal", "tax", "audit", "compliance", "fiducie", "trust", "contrat", "contract", "juriste", "cabinet", "law firm"],
+    exclude: ["université", "university", "blog", "article", "news"]
+  },
+  "Industrie & Manufacture": {
+    include: ["manufacture", "usine", "factory", "production", "industriel", "industrial", "supply chain", "chaîne", "fournisseur", "supplier", "équipement", "equipment", "machinerie", "machinery", "assemblage", "assembly", "prototypage", "prototyping"],
+    exclude: ["agence", "agency", "blog", "article", "news"]
+  },
+  "Commerce de détail": {
+    include: ["retail", "commerce", "magasin", "store", "vente", "e-commerce", "boutique", "shop", "vendeur", "seller", "client", "customer", "point de vente", "pos", "merchandising", "inventory", "inventaire"],
+    exclude: ["blog", "article", "news", "agence", "agency"]
+  },
+  "Transport & Logistique": {
+    include: ["transport", "logistique", "logistics", "livraison", "delivery", "fret", "freight", "distribution", "expédition", "shipping", "chauffeur", "driver", "camion", "truck", "entrepôt", "warehouse", "terminal", "tracking"],
+    exclude: ["agence", "agency", "blog", "article", "news"]
+  }
 };
+
+function matchSectorsStrict(fullText, requiredSectors) {
+  if (requiredSectors.length === 0) return [];
+  
+  const matched = [];
+  for (const sector of requiredSectors) {
+    const rules = SECTOR_RULES[sector];
+    if (!rules) continue;
+    
+    const hasInclude = rules.include.some(kw => fullText.includes(kw));
+    const hasExclude = rules.exclude.some(kw => fullText.includes(kw));
+    
+    if (hasInclude && !hasExclude) {
+      matched.push(sector);
+    }
+  }
+  return matched;
+}
 
 function inferSectorsFromKb(kb) {
   const text = normText(`${kb.name || ""} ${kb.notes || ""} ${(kb.tags || []).join(" ")}`);
   const matched = [];
-  for (const [sector, keywords] of Object.entries(SECTOR_KEYWORDS)) {
-    if (keywords.some(kw => text.includes(kw))) {
+  
+  for (const [sector, rules] of Object.entries(SECTOR_RULES)) {
+    const hasInclude = rules.include.some(kw => text.includes(normText(kw)));
+    const hasExclude = rules.exclude.some(kw => text.includes(normText(kw)));
+    
+    if (hasInclude && !hasExclude) {
       matched.push(sector);
     }
   }
