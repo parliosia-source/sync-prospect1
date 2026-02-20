@@ -518,16 +518,17 @@ Deno.serve(async (req) => {
         matchedSectors = kbSectors;
       }
 
-      // Create prospect
+      // Create prospect — use matched sectors, never entityType as industry
+      const industryLabel = matchedSectors[0] || kb.industryLabel || null;
       await base44.entities.Prospect.create({
         campaignId,
         ownerUserId: campaign.ownerUserId,
         companyName: kb.name,
         website: kb.website || `https://${kb.domain}`,
         domain: domNorm,
-        industry: kb.entityType || null,
-        industrySectors: matchedSectors,
-        industryLabel: matchedSectors[0] || null,
+        industry: industryLabel,
+        industrySectors: matchedSectors.length > 0 ? matchedSectors : (Array.isArray(kb.industrySectors) ? kb.industrySectors : []),
+        industryLabel,
         location: kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
         entityType: kb.entityType || "COMPANY",
         status: "NOUVEAU",
