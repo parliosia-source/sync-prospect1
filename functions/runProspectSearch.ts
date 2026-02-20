@@ -195,6 +195,16 @@ async function normalizeResult(r, requiredSectors) {
     const domain = getRegistrableDomain(new URL(url).hostname);
     if (BLOCKED_DOMAINS.has(domain)) return { isValid: false };
 
+    // B) STRICT: reject if domain matches public institution patterns
+    const domainLower = domain.toLowerCase();
+    if (requiredSectors.length > 0 && !requiredSectors.includes("Gouvernement & Public") && !requiredSectors.includes("Éducation & Formation")) {
+      const publicPatterns = /\b(ville|city|cegep|collège|college|universite|université|university|fondation|foundation|chambre|chamber|ordre|order|cisss|chu|hospital|clinique|clinic|municipalité|municipality)\./i;
+      if (publicPatterns.test(domain)) {
+        console.log(`[WEB_FILL] REJECT public domain: ${domain}`);
+        return { isValid: false };
+      }
+    }
+
     // Match sectors from fullText (title + snippet + url + domain)
     const fullText = `${title} ${snippet} ${url} ${domain}`.toLowerCase();
     let sectorMatch = false;
