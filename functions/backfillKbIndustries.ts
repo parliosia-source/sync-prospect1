@@ -45,16 +45,16 @@ Deno.serve(async (req) => {
     
     if (!hasIndustries) {
       const guessed = guessSectors(kb);
-      if (guessed.length > 0 && !dryRun) {
-        await base44.entities.KBEntity.update(kb.id, {
-          industrySectors: guessed,
-          industryLabel: guessed[0],
-        });
+      if (guessed.length > 0) {
+        if (!dryRun) {
+          await base44.entities.KBEntity.update(kb.id, {
+            industrySectors: guessed,
+            industryLabel: guessed[0],
+          });
+        }
         updated++;
-      } else if (guessed.length === 0) {
+      } else {
         stillEmpty++;
-      } else if (dryRun) {
-        updated++;
       }
     }
   }
