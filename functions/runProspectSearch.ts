@@ -591,18 +591,25 @@ Deno.serve(async (req) => {
 
     // ════════════════════════════════════════════════════════════════════════════
     // C) FINALIZE: FAILED uniquement si prospectCount == 0
+    // A) NEVER expose rate limit in errorMessage
     // ════════════════════════════════════════════════════════════════════════════
     const finalProspects = await base44.entities.Prospect.filter({ campaignId });
     let finalStatus;
 
     if (prospectCount >= targetCount) {
       finalStatus = "DONE";
+      errorMessage = null;
       console.log(`[FINAL] SUCCESS`);
     } else if (prospectCount > 0) {
       // DONE_PARTIAL even if rate limit / time budget / budget guard
       finalStatus = "DONE_PARTIAL";
-      if (requiredSectors.length > 0) suggestedNextStep = "RELAX_FILTERS";
-      errorMessage = "Résultats insuffisants. Relâchez les filtres ou élargissez la géographie.";
+      if (requiredSectors.length > 0) {
+        suggestedNextStep = "RELAX_FILTERS";
+        errorMessage = "Résultats insuffisants. Relâchez les filtres ou élargissez la géographie.";
+      } else {
+        // Don't expose rate limit; just generic message
+        errorMessage = null;
+      }
       console.log(`[FINAL] PARTIAL: found=${prospectCount}, target=${targetCount}, stopReason=${stopReason}`);
     } else {
       // FAILED only if 0 results total
