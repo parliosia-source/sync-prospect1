@@ -253,7 +253,7 @@ export default function CampaignDetail() {
             </div>
           </div>
 
-          {/* DONE_PARTIAL — informational, not an error */}
+          {/* DONE_PARTIAL — informational, with RELAX_FILTERS suggestion */}
           {campaign.status === "DONE_PARTIAL" && campaign.errorMessage && (
             <div className={`mt-3 rounded-xl px-4 py-3 text-sm flex items-start gap-2 ${
               campaign.toolUsage?.stopReason === "BUDGET_GUARD" 
@@ -267,6 +267,11 @@ export default function CampaignDetail() {
                 {campaign.toolUsage?.braveRequestsUsed !== undefined && (
                   <div className="text-xs mt-1 opacity-75">
                     Requêtes Brave utilisées : {campaign.toolUsage.braveRequestsUsed} / {campaign.toolUsage.braveMaxRequests || 250}
+                  </div>
+                )}
+                {campaign.toolUsage?.stopReason === "QUERIES_EXHAUSTED" && campaign.industrySectors?.length > 0 && (
+                  <div className="text-xs mt-2 p-2 bg-amber-100 rounded border border-amber-200">
+                    <strong>💡 Suggestions :</strong> réduisez les secteurs filtrés, élargissez la zone géographique ou supprimez certains mots-clés.
                   </div>
                 )}
                 <div className="mt-1.5">
