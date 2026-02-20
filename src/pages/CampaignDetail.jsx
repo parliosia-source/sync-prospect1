@@ -471,7 +471,11 @@ export default function CampaignDetail() {
                         {p.domain} <ExternalLink className="w-2.5 h-2.5" />
                       </a>
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{p.industry || "—"}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500">
+                      {Array.isArray(p.industrySectors) && p.industrySectors.length > 0
+                        ? p.industrySectors.join(", ")
+                        : (p.industryLabel || p.industry) || "—"}
+                    </td>
                     <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
                     <td className="px-4 py-3">
                       {p.relevanceScore ? (
