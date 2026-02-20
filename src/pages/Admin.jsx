@@ -256,6 +256,129 @@ export default function Admin() {
         </div>
       )}
 
+      {/* MAINTENANCE */}
+      {activeTab === "maintenance" && (
+        <div className="space-y-5 max-w-4xl">
+          {/* KB Stats */}
+          <div className="bg-white rounded-xl border p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-slate-800">Base de connaissances (KB)</h3>
+              <Button size="sm" variant="outline" onClick={loadMaintenance} disabled={maintenanceLoading} className="gap-2 text-xs">
+                <RefreshCw className={`w-3.5 h-3.5 ${maintenanceLoading ? "animate-spin" : ""}`} />
+                Recharger
+              </Button>
+            </div>
+            {kbStats ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-slate-50 rounded-lg p-3">
+                  <div className="text-2xl font-bold text-slate-800">{kbStats.totalKBEntities}</div>
+                  <div className="text-xs text-slate-500 mt-1">Total entités</div>
+                </div>
+                <div className="bg-blue-50 rounded-lg p-3">
+                  <div className="text-2xl font-bold text-blue-600">{kbStats.countWithIndustrySectors}</div>
+                  <div className="text-xs text-slate-500 mt-1">Avec secteurs</div>
+                </div>
+                <div className="bg-red-50 rounded-lg p-3">
+                  <div className="text-2xl font-bold text-red-600">{kbStats.countMissingIndustrySectors}</div>
+                  <div className="text-xs text-slate-500 mt-1">Manquent secteurs</div>
+                </div>
+                <div className="bg-purple-50 rounded-lg p-3">
+                  <div className="text-sm font-semibold text-purple-600">{kbStats.fetchedPages} pages</div>
+                  <div className="text-xs text-slate-500 mt-1">({kbStats.pageSize} par page)</div>
+                </div>
+              </div>
+            ) : maintenanceLoading ? (
+              <div className="text-center py-6 text-slate-400">Chargement...</div>
+            ) : null}
+
+            {kbStats && kbStats.countByIndustrySector && Object.keys(kbStats.countByIndustrySector).length > 0 && (
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-sm font-medium text-slate-700 mb-2">Par secteur:</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {Object.entries(kbStats.countByIndustrySector).map(([sector, count]) => (
+                    <div key={sector} className="text-xs bg-slate-50 rounded px-2 py-1">
+                      <span className="font-medium">{sector}</span>: {count}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Backfill KB */}
+          <div className="bg-white rounded-xl border p-5">
+            <h3 className="font-semibold text-slate-800 mb-4">Backfill secteurs (IA rule-based)</h3>
+            <div className="flex gap-2 mb-4">
+              <Button onClick={handleBackfillDryRun} disabled={maintenanceLoading} variant="outline" className="gap-2">
+                <RefreshCw className={`w-4 h-4 ${maintenanceLoading ? "animate-spin" : ""}`} />
+                Dry run (500)
+              </Button>
+              <Button onClick={handleBackfillExecute} disabled={maintenanceLoading || !backfillStats} className="gap-2 bg-orange-600 hover:bg-orange-700">
+                <Zap className="w-4 h-4" />
+                Exécuter
+              </Button>
+            </div>
+
+            {backfillStats && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="bg-slate-50 rounded-lg p-3">
+                    <div className="text-xl font-bold text-slate-800">{backfillStats.scanned}</div>
+                    <div className="text-xs text-slate-500">Scannées</div>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3">
+                    <div className="text-xl font-bold text-green-600">{backfillStats.updated}</div>
+                    <div className="text-xs text-slate-500">Mises à jour</div>
+                  </div>
+                  <div className="bg-yellow-50 rounded-lg p-3">
+                    <div className="text-xl font-bold text-yellow-600">{backfillStats.skippedAlreadyFilled}</div>
+                    <div className="text-xs text-slate-500">Déjà remplies</div>
+                  </div>
+                  <div className="bg-red-50 rounded-lg p-3">
+                    <div className="text-xl font-bold text-red-600">{backfillStats.skippedLowConfidence}</div>
+                    <div className="text-xs text-slate-500">Confiance basse</div>
+                  </div>
+                </div>
+
+                {backfillStats.bySector && Object.keys(backfillStats.bySector).length > 0 && (
+                  <div className="pt-3 border-t">
+                    <p className="text-sm font-medium text-slate-700 mb-2">Détection par secteur:</p>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {Object.entries(backfillStats.bySector).map(([sector, count]) => (
+                        <div key={sector} className="text-xs bg-blue-50 rounded px-2 py-1">
+                          <span className="font-medium">{sector}</span>: {count}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {backfillStats.sampleUpdated && backfillStats.sampleUpdated.length > 0 && (
+                  <div className="pt-3 border-t">
+                    <p className="text-sm font-medium text-slate-700 mb-2">Exemples:</p>
+                    <div className="space-y-1 text-xs">
+                      {backfillStats.sampleUpdated.map((s, i) => (
+                        <div key={i} className="bg-slate-50 rounded px-2 py-1">
+                          <span className="font-mono text-slate-600">{s.domain}</span>
+                          <span className="text-slate-500 mx-1">→</span>
+                          <span className="text-blue-600">{s.sectors.join(", ")}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {backfillStats.dryRun && (
+                  <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                    ⚠ Résultats en simulation (dry run). Cliquez "Exécuter" pour appliquer.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* LOGS */}
       {activeTab === "logs" && (
         <div className="space-y-2">
