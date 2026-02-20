@@ -173,27 +173,30 @@ const SECTOR_RULES = {
   }
 };
 
-function matchSectorsStrict(fullText, requiredSectors) {
+// ── Scoring: strong +2, weak +1, exclude -3 ────────────────────────────────────
+function matchSectorsStrict(text, requiredSectors, strictMode = true) {
+  const norm = normText(text);
   if (requiredSectors.length === 0) return { matched: [], scores: {} };
   
   const matched = [];
   const scores = {};
+  const STRICT_THRESHOLD = 3;  // Required in strict mode
+  const RELAX_THRESHOLD = 1;   // Fallback if relax suggested
+  const threshold = strictMode ? STRICT_THRESHOLD : RELAX_THRESHOLD;
   
   for (const sector of requiredSectors) {
     const rules = SECTOR_RULES[sector];
     if (!rules) continue;
     
-    // Count include matches (weighted)
-    const includeCount = rules.include.filter(kw => fullText.includes(kw)).length;
+    const strongMatches = (rules.includeStrong || []).filter(kw => norm.includes(normText(kw))).length * 2;
+    const weakMatches = (rules.includeWeak || []).filter(kw => norm.includes(normText(kw))).length;
+    const score = strongMatches + weakMatches;
     
-    // Check if any exclude matches
-    const hasExclude = rules.exclude.some(kw => fullText.includes(kw));
+    const hasExclude = (rules.excludeStrong || []).some(kw => norm.includes(normText(kw)));
+    const finalScore = hasExclude ? 0 : Math.min(score, 6);
     
-    // Scoring: threshold >= 2 includes and no excludes
-    const score = hasExclude ? 0 : Math.min(includeCount, 3);
-    scores[sector] = score;
-    
-    if (score >= 2) {
+    scores[sector] = finalScore;
+    if (finalScore >= threshold) {
       matched.push(sector);
     }
   }
@@ -206,8 +209,10 @@ function inferSectorsFromKb(kb) {
   const matched = [];
   
   for (const [sector, rules] of Object.entries(SECTOR_RULES)) {
-    const hasInclude = rules.include.some(kw => text.includes(normText(kw)));
-    const hasExclude = rules.exclude.some(kw => text.includes(normText(kw)));
+    const strongMatches = (rules.includeStrong || []).filter(kw => text.includes(normText(kw))).length * 2;
+    const weakMatches = (rules.includeWeak || []).filter(kw => text.includes(normText(kw))).length;
+    const score = strongMatches + weakMatches;
+    const hasExclude = (rules.excludeStrong || []).some(kw => text.includes(normText(kw)));
     
     if (hasInclude && !hasExclude) {
       matched.push(sector);
