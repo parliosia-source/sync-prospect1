@@ -59,13 +59,19 @@ export default function CampaignDetail() {
   }, [campaign?.status, campaign?.analysisStatus]);
 
   const loadAll = async () => {
-    const [camp, prsp] = await Promise.all([
-      base44.entities.Campaign.filter({ id: campaignId }).then(r => r[0]),
-      base44.entities.Prospect.filter({ campaignId }, "-created_date", 200),
-    ]);
-    setCampaign(camp);
-    setProspects(prsp);
-    setIsLoading(false);
+    try {
+      const [camp, prsp] = await Promise.all([
+        base44.entities.Campaign.filter({ id: campaignId }).then(r => r[0]),
+        base44.entities.Prospect.filter({ campaignId }, "-created_date", 200),
+      ]);
+      setCampaign(camp);
+      setProspects(prsp);
+      setIsLoading(false);
+    } catch (error) {
+      console.error("Error loading campaign:", error);
+      setCampaign({ id: campaignId, error: true });
+      setIsLoading(false);
+    }
   };
 
   const handleAnalyze = async (prospect) => {
