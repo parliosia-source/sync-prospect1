@@ -110,6 +110,7 @@ Deno.serve(async (req) => {
                 source: 'Brave Seeder',
                 industrySectors: [sector],
                 industryLabel: sector,
+                seedBatchId: `BRAVE_SEED_${locationKey}_${Date.now()}`,
               });
               sectorCreated++;
               totalCreated++;
