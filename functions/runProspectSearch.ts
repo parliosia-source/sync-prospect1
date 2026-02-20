@@ -162,21 +162,31 @@ const SECTOR_RULES = {
 };
 
 function matchSectorsStrict(fullText, requiredSectors) {
-  if (requiredSectors.length === 0) return [];
+  if (requiredSectors.length === 0) return { matched: [], scores: {} };
   
   const matched = [];
+  const scores = {};
+  
   for (const sector of requiredSectors) {
     const rules = SECTOR_RULES[sector];
     if (!rules) continue;
     
-    const hasInclude = rules.include.some(kw => fullText.includes(kw));
+    // Count include matches (weighted)
+    const includeCount = rules.include.filter(kw => fullText.includes(kw)).length;
+    
+    // Check if any exclude matches
     const hasExclude = rules.exclude.some(kw => fullText.includes(kw));
     
-    if (hasInclude && !hasExclude) {
+    // Scoring: threshold >= 2 includes and no excludes
+    const score = hasExclude ? 0 : Math.min(includeCount, 3);
+    scores[sector] = score;
+    
+    if (score >= 2) {
       matched.push(sector);
     }
   }
-  return matched;
+  
+  return { matched, scores };
 }
 
 function inferSectorsFromKb(kb) {
