@@ -331,7 +331,12 @@ Deno.serve(async (req) => {
   if (!campaign) return Response.json({ error: "Campagne introuvable" }, { status: 404 });
   if (campaign.ownerUserId !== user.email && user.role !== "admin") return Response.json({ error: "Forbidden" }, { status: 403 });
 
-  await base44.entities.Campaign.update(campaignId, { status: "RUNNING", progressPct: 5, lastRunAt: new Date().toISOString() });
+  const START_TIME = Date.now();
+  const MAX_DURATION_MS = 70_000; // 70 seconds safety limit
+  let timeoutTriggered = false;
+
+  try {
+    await base44.entities.Campaign.update(campaignId, { status: "RUNNING", progressPct: 5, lastRunAt: new Date().toISOString() });
 
   const loc    = campaign.locationQuery || "Montréal";
   const target = campaign.targetCount || 50;
