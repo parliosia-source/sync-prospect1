@@ -49,7 +49,13 @@ const BLOCKED_DOMAINS = new Set([
   "inc.com","crunchbase.com","clutch.co","themanifest.com","goodfirms.co","sortlist.com","g2.com","capterra.com",
 ]);
 
-const BLOCKED_URL_PATHS = /\/blog\/|\/news\/|\/press\/|\/article\/|\/articles\/|\/actualite\/|\/actualites\/|\/magazine\/|\/careers\/|\/carrieres\/|\/jobs\/|\/emplois\/|\/offres-emploi\/|\/salle-de-presse\/|\/communique\/|\/communiques\/|\/medias\/|\/presse\/|\/evenement\/|\/evenements\/|\/events\/|\/event\/|\/agenda\/|\/programme\/|\/inscription\/|\/register\/|\/actualite|\/nouvelles\/|\.pdf$/i;
+const BLOCKED_URL_PATHS = /\/blog\/|\/news\/|\/press\/|\/article\/|\/articles\/|\/actualite\/|\/actualites\/|\/magazine\/|\/careers\/|\/carrieres\/|\/jobs\/|\/emplois\/|\/offres-emploi\/|\/salle-de-presse\/|\/communique\/|\/communiques\/|\/medias\/|\/presse\/|\/evenement\/|\/evenements\/|\/events\/|\/event\/|\/agenda\/|\/programme\/|\/inscription\/|\/register\/|\/actualite|\/nouvelles\/|\/directory\/|\/rankings\/|\.pdf$/i;
+
+// ── Hard exclude domains (pre-LLM filtering) ────────────────────────────────────
+const HARD_EXCLUDE_DOMAINS = /^(glassdoor|chambers|canada|gc|bankofcanada|medium|.*\.gov|.*\.gouv|chambers)/i;
+
+// ── Hard exclude title patterns (pre-LLM filtering) ──────────────────────────────
+const HARD_EXCLUDE_TITLE = /\b(top|best|directory|map|mapping|ranking|rank|list|how to|guide|guide complet|news|blog|press|press release|pdf|directory|listem|companies list|database|annuaire|repertoire)\b/i;
 
 // ── Anti-bruit strengthened ────────────────────────────────────────────────────
 const ANTI_BRUIT = {
