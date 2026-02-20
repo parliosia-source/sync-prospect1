@@ -59,7 +59,48 @@ const ANTI_BRUIT = {
   agency: /\b(agence événementielle|event planner|organisateur|event management|event agency|party planner|wedding|mariage|planificateur|event organizer)\b/i,
   directory: /\b(répertoire|annuaire|directory|listing|pages jaunes|yellow pages|fournisseur|supplier|catalog|catalogue)\b/i,
   media: /\b(journal|newspaper|gazette|radio|tv|television|chaîne|channel|presse|medias|honoree|award|awards|ranking|classement|palmar[eè]s)\b/i,
+  public: /\b(ville|city|municipalité|municipality|gouvernement|government|fondation|foundation|université|university|cegep|collège|chamber|chambre|ordre|order|cisss|chu|hospital)\b/i,
 };
+
+// ── Strict sector entity filters ────────────────────────────────────────────────
+const ENTITY_TYPE_RESTRICTIONS = {
+  "Technologie": {
+    allow: ["COMPANY", "STARTUP"],
+    allowIfMatches: { "ASSOCIATION": /\b(technologie|tech|software|informatique)\b/i },
+  },
+  "Finance & Assurance": {
+    allow: ["COMPANY", "STARTUP", "ASSOCIATION"],
+    rejectAlways: ["UNIVERSITY", "FOUNDATION", "PUBLIC_ORG", "CHAMBER"],
+  },
+  "Santé & Pharma": {
+    allow: ["COMPANY", "STARTUP", "HOSPITAL", "CLINIC"],
+    rejectAlways: ["UNIVERSITY", "FOUNDATION", "CHAMBER"],
+  },
+  "Gouvernement & Public": {
+    allow: ["PUBLIC_ORG", "GOVERNMENT", "MUNICIPALITY", "AGENCY"],
+  },
+  "Éducation & Formation": {
+    allow: ["UNIVERSITY", "EDUCATION", "TRAINING_CENTER", "CEGEP"],
+  },
+  "Associations & OBNL": {
+    allow: ["ASSOCIATION", "FOUNDATION", "NONPROFIT"],
+  },
+};
+
+function isEntityTypeAllowed(entityType, sector, name) {
+  if (!sector) return true;
+  const restriction = ENTITY_TYPE_RESTRICTIONS[sector];
+  if (!restriction) return true;
+  
+  if (restriction.rejectAlways && restriction.rejectAlways.includes(entityType)) return false;
+  if (restriction.allow && !restriction.allow.includes(entityType)) {
+    if (restriction.allowIfMatches && restriction.allowIfMatches[entityType]) {
+      return restriction.allowIfMatches[entityType].test(name || "");
+    }
+    return false;
+  }
+  return true;
+}
 
 function shouldRejectByNoise(url, title, snippet) {
   const fullText = `${url} ${title} ${snippet}`.toLowerCase();
