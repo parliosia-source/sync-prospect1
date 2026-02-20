@@ -151,6 +151,7 @@ export default function Dashboard() {
           <PipelineHealth leads={leads} isLoading={isLoading} />
         </div>
       </div>
+
       <CampaignModal
         open={showCampaignModal}
         onClose={() => setShowCampaignModal(false)}
@@ -158,7 +159,16 @@ export default function Dashboard() {
           const camp = await base44.entities.Campaign.create({ ...formData, ownerUserId: user.email, status: "DRAFT" });
           setShowCampaignModal(false);
           if (launch) {
+            // Optimistic update: mark RUNNING immediately for instant progress feedback
+            await base44.entities.Campaign.update(camp.id, {
+              status: "RUNNING",
+              progressPct: 5,
+              errorMessage: null,
+              lastRunAt: new Date().toISOString(),
+            }).catch(() => {});
+            // Fire-and-forget search
             base44.functions.invoke("runProspectSearch", { campaignId: camp.id });
+            // Redirect: CampaignDetail will poll immediately since status=RUNNING
             window.location.href = createPageUrl("CampaignDetail") + "?id=" + camp.id;
           }
         }}
