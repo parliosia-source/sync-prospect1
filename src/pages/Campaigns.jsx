@@ -58,6 +58,15 @@ export default function Campaigns() {
     });
     if (launch) {
       setRunningIds(s => new Set([...s, camp.id]));
+      // Optimistic update for instant feedback (PHASE A)
+      try {
+        await base44.entities.Campaign.update(camp.id, {
+          status: "RUNNING",
+          progressPct: 5,
+          errorMessage: null,
+          lastRunAt: new Date().toISOString(),
+        });
+      } catch (_) {}
       base44.functions.invoke("runProspectSearch", { campaignId: camp.id })
         .finally(() => {
           setRunningIds(s => { const n = new Set(s); n.delete(camp.id); return n; });
