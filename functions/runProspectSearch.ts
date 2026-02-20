@@ -546,7 +546,8 @@ Deno.serve(async (req) => {
     else if (stopReason === "RATE_LIMIT")    errorMsg = `Limite API : ${createdWeb} web${kbNote} / ${target}. Relancez dans quelques minutes.`;
     else                                     errorMsg = `Terminé : ${createdWeb} web${kbNote} / ${target}.${skippedDupe > 0 ? ` ${skippedDupe} doublons ignorés.` : ""}`;
   } else {
-    finalStatus = "COMPLETED";
+    // Align with expected statuses: DONE / DONE_PARTIAL / FAILED
+    finalStatus = "DONE";
   }
 
   // PHASE B.4: DONE_PARTIAL + suggestedNextStep
