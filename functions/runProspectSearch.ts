@@ -169,196 +169,145 @@ function buildQueryVariants(campaign, loc) {
     );
   }
 
-  return [...new Set(queries)].filter(q => q.length > 10);
+  return [...new Set(queries)].filter(q => q.length > 5);
 }
 
-function buildBroadFallbacks(campaign, loc) {
-  const sector = (campaign.industrySectors || []).slice(0, 2).join(" ");
-  return [
-    `organisation ${loc} "congrès annuel" ${sector} ${EXCL}`,
-    `association ${loc} congrès membres ${sector} ${EXCL}`,
-    `entreprise ${loc} gala annuel conférence ${sector} ${EXCL}`,
-    `fédération ${loc} assemblée annuelle ${sector} ${EXCL}`,
-    `chambre de commerce ${loc} gala membres ${EXCL}`,
-    `syndicat ${loc} assemblée générale ${sector} ${EXCL}`,
-    `ordre ${loc} congrès annuel ${sector} ${EXCL}`,
-  ];
-}
-
-// ── Main handler ───────────────────────────────────────────────────────────────
+// ── Main Handler ────────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { campaignId } = await req.json();
-  if (!campaignId) return Response.json({ error: "campaignId requis" }, { status: 400 });
+  const body = await req.json();
+  const { campaignId } = body;
+  if (!campaignId) return Response.json({ error: "campaignId required" }, { status: 400 });
 
   const campaigns = await base44.entities.Campaign.filter({ id: campaignId });
   const campaign = campaigns[0];
-  if (!campaign) return Response.json({ error: "Campagne introuvable" }, { status: 404 });
-  if (campaign.ownerUserId !== user.email && user.role !== "admin") return Response.json({ error: "Forbidden" }, { status: 403 });
+  if (!campaign) return Response.json({ error: "Campaign not found" }, { status: 404 });
+  if (campaign.ownerUserId !== user.email && user.role !== "admin") {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const START_TIME = Date.now();
-  const MAX_DURATION_MS = 70_000; // 70 seconds safety limit
-  let timeoutTriggered = false;
-  let finalStatus, errorMsg, stopReason;
+  const MAX_DURATION_MS = 25 * 60 * 1000; // 25 min
+  const APP_SETTINGS = (await base44.entities.AppSettings.filter({ settingsId: "global" }) || [{}])[0] || {};
+  const BRAVE_MAX_REQUESTS = APP_SETTINGS.braveMaxRequestsPerCampaign || 250;
+  const KB_TOPUP_ENABLED = APP_SETTINGS.enableKbTopUp !== false;
+
+  let prospectCount = 0;
+  let progressPct = 0;
+  let errorMessage = null;
+  let stopped = false;
+  let stopReason = null;
+  let webQueryCount = 0;
+  let braveRequestsUsed = 0;
+  let kbTopupAdded = 0;
+  let freshnessChecksDone = 0;
 
   try {
-    await base44.entities.Campaign.update(campaignId, { status: "RUNNING", progressPct: 5, lastRunAt: new Date().toISOString() });
+    // Phase A: Web Search
+    const existingDomains = new Set();
+    const locQuery = campaign.locationQuery || "Montréal, QC";
+    const requiredSectors = campaign.industrySectors || [];
+    const queriesRaw = buildQueryVariants(campaign, locQuery);
+    const targetCount = campaign.targetCount || 50;
+    let offsets = [0, 10];
 
-    const loc    = campaign.locationQuery || "Montréal";
-    const target = campaign.targetCount || 50;
+    await base44.entities.Campaign.update(campaignId, {
+      status: "RUNNING",
+      progressPct: 5,
+      errorMessage: null,
+      lastRunAt: new Date().toISOString(),
+      toolUsage: {
+        braveRequestsUsed: 0,
+        braveMaxRequests: BRAVE_MAX_REQUESTS,
+        brave429Count: 0,
+        freshnessChecksDone: 0,
+        webSearchQueryCount: 0,
+        kbTopupAdded: 0,
+      },
+    });
 
-    let appSettings = {};
-    try {
-      const settings = await base44.entities.AppSettings.filter({ settingsId: "global" });
-      if (settings.length > 0) appSettings = settings[0];
-    } catch (_) {}
+    // Execute web queries
+    for (const query of queriesRaw) {
+      if (Date.now() - START_TIME > MAX_DURATION_MS) { stopped = true; stopReason = "TIME_BUDGET"; break; }
+      if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
+      if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { stopReason = "BUDGET_GUARD"; break; }
 
-    const BRAVE_MAX_REQUESTS  = appSettings.braveMaxRequestsPerCampaign || 250;
-    const BRAVE_MAX_PAGES     = appSettings.braveMaxPagesPerQuery || 5;
-    const BRAVE_MIN_REMAINING = appSettings.braveMinRemainingBeforePause || 2;
-    const ENABLE_KB_TOPUP     = appSettings.enableKbTopUp !== false;
+      for (const offset of offsets) {
+        if (Date.now() - START_TIME > MAX_DURATION_MS) { stopped = true; stopReason = "TIME_BUDGET"; break; }
+        if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
+        if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { stopReason = "BUDGET_GUARD"; break; }
 
-    const existing = await base44.entities.Prospect.filter({ campaignId });
-    const existingDomains = new Set(existing.map(p => p.domain).filter(Boolean));
-    let created = existing.length;
+        const { results, rateLimited } = await braveSearch(query, 10, offset);
+        braveRequestsUsed++;
 
-    let allKbEntities = [];
-    let kbDomains = new Set();
-    try {
-      allKbEntities = await base44.entities.KBEntity.filter({}, "-created_date", 500);
-      allKbEntities.forEach(e => { if (e.domain) kbDomains.add(e.domain.toLowerCase().replace(/^www\./, "")); });
-    } catch (_) {}
-
-    const allQueries = buildQueryVariants(campaign, loc);
-    let queryIndex = 0;
-    let skippedDupe = 0;
-    let filteredNonOrgCount = 0;
-    let braveRequestsUsed = 0;
-    let createdWeb = 0;
-    let totalQueriesRun = 0;
-    let rateLimitHit = false;
-    let budgetGuardTriggered = false;
-    const queryLog = [];
-
-    const runQuery = async (query, maxPagesOverride) => {
-      if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { budgetGuardTriggered = true; return; }
-      const maxPages = maxPagesOverride ?? Math.min(BRAVE_MAX_PAGES, (target - created) > 50 ? 7 : 5);
-
-      for (let page = 0; page < maxPages && created < target && !budgetGuardTriggered; page++) {
-        if (Date.now() - START_TIME > MAX_DURATION_MS) { timeoutTriggered = true; return; }
-        let results = [];
-        try {
-          const braveResult = await braveSearch(query, 10, page * 10);
-          braveRequestsUsed++;
-          if (braveRLState.remaining >= 0 && braveRLState.remaining <= BRAVE_MIN_REMAINING) await waitForBraveReset(1000);
-          if (braveResult.rateLimited) { rateLimitHit = true; break; }
-          results = braveResult.results;
-        } catch (_) {}
-
-        if (results.length === 0 && SERPAPI_KEY) {
-          try { results = await serpSearch(query, page * 10); } catch (_) {}
-        }
-        if (results.length === 0) break;
-
-        totalQueriesRun++;
-        let pageCreated = 0;
+        if (rateLimited) { stopReason = "BRAVE_RATE_LIMITED"; break; }
 
         for (const r of results) {
-          if (created >= target) break;
-          
-          const noiseType = shouldRejectByNoise(r.url || r.link || "", r.title || "", r.snippet || r.description || "");
-          if (noiseType) {
-            filteredNonOrgCount++;
-            continue;
-          }
-          
-          const normalized = await normalizeResult(r, campaign.industrySectors);
-          
-          const hasRequiredSectors = campaign.industrySectors && campaign.industrySectors.length > 0;
-          const isAccepted = normalized.isValid 
-            && normalized.resultType === "ORG_WE_WANT"
-            && (!hasRequiredSectors || normalized.sectorMatch);
-            
-          if (!isAccepted) { 
-            filteredNonOrgCount++; 
-            continue; 
-          }
+          if (prospectCount >= targetCount) break;
+          const noise = shouldRejectByNoise(r.url, r.title, r.snippet);
+          if (noise) continue;
 
-          const { domain, companyName, website } = normalized;
-          if (existingDomains.has(domain) || kbDomains.has(domain)) { skippedDupe++; continue; }
+          const normalized = await normalizeResult(r, requiredSectors);
+          if (!normalized.isValid || !normalized.sectorMatch) continue;
 
+          const domNorm = normalized.domain.toLowerCase();
+          if (existingDomains.has(domNorm)) continue;
+
+          // Save prospect
           await base44.entities.Prospect.create({
             campaignId,
             ownerUserId: campaign.ownerUserId,
-            companyName,
-            website,
-            domain,
-            industry:    normalized.industry,
-            industrySectors: Array.isArray(normalized.matchedSectors) && normalized.matchedSectors.length > 0
-              ? normalized.matchedSectors
-              : (campaign.industrySectors || []),
-            industryLabel: Array.isArray(normalized.matchedSectors) && normalized.matchedSectors.length > 0
-              ? normalized.matchedSectors[0]
-              : ((campaign.industrySectors && campaign.industrySectors.length > 0) ? campaign.industrySectors[0] : null),
-            location:    normalized.locationText ? { city: normalized.locationText, country: "CA" } : { country: "CA" },
-            entityType:  "COMPANY",
-            status:      "NOUVEAU",
+            companyName: normalized.companyName,
+            website: normalized.website,
+            domain: domNorm,
+            industry: normalized.industry,
+            industrySectors: normalized.matchedSectors,
+            industryLabel: normalized.matchedSectors[0] || null,
+            location: normalized.locationText ? { city: normalized.locationText, country: "CA" } : { country: "CA" },
+            entityType: "COMPANY",
+            status: "NOUVEAU",
             sourceOrigin: "WEB",
-            serpSnippet: r?.snippet || r?.description || "",
-            sourceUrl:   r?.url || r?.link || "",
+            serpSnippet: r.snippet || "",
+            sourceUrl: r.url,
           });
 
-          existingDomains.add(domain);
-          created++;
-          createdWeb++;
-          pageCreated++;
+          existingDomains.add(domNorm);
+          prospectCount++;
+          webQueryCount++;
         }
-        queryLog.push({ query: query.slice(0, 80), page, resultsRaw: results.length, added: pageCreated });
-      }
-    };
 
-    // Phase 1: main queries
-    while (created < target && queryIndex < allQueries.length && !rateLimitHit && !budgetGuardTriggered && !timeoutTriggered) {
-      const pct = Math.min(87, Math.round((created / target) * 87));
-      await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
-      await runQuery(allQueries[queryIndex]);
-      queryIndex++;
+        progressPct = Math.min(87, Math.round((prospectCount / targetCount) * 85) + 2);
+        await base44.entities.Campaign.update(campaignId, {
+          progressPct,
+          countProspects: prospectCount,
+          toolUsage: {
+            braveRequestsUsed,
+            braveMaxRequests: BRAVE_MAX_REQUESTS,
+            brave429Count: braveRLState.count429,
+            freshnessChecksDone,
+            webSearchQueryCount: webQueryCount,
+            kbTopupAdded,
+          },
+        });
+      }
+
+      if (stopped || stopReason) break;
     }
 
-    // Phase 2: broad fallbacks if < 70% of target
-    if (created < target * 0.7 && !rateLimitHit && !budgetGuardTriggered && !timeoutTriggered) {
-      const broadFallbacks = buildBroadFallbacks(campaign, loc);
-      for (const q of broadFallbacks) {
-        if (created >= target || budgetGuardTriggered || timeoutTriggered) break;
-        const pct = Math.min(87, Math.round((created / target) * 87));
-        await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
-        await runQuery(q, 3);
-      }
-    }
+    // Phase B: KB Top-up
+    if (KB_TOPUP_ENABLED && prospectCount < targetCount && !stopped) {
+      progressPct = 90;
+      await base44.entities.Campaign.update(campaignId, { progressPct });
 
-    // Phase KB_TOPUP
-    let kbTopupAdded = 0, kbTopupSkippedDuplicate = 0, kbTopupCandidates = 0, kbTopupStoppedReason = null;
-    let kbTopupRejectedSectorCount = 0, kbTopupRejectedMissingTagsCount = 0;
+      const kbAll = await base44.entities.KBEntity.list("-updated_date", 500);
+      const locCity = locQuery.split(",")[0].toLowerCase();
+      const hasRequiredSectors = requiredSectors.length > 0;
 
-    const webStopReason = created >= target         ? "TARGET_REACHED"
-      : budgetGuardTriggered                        ? "BUDGET_GUARD"
-      : rateLimitHit                                ? "RATE_LIMIT"
-      : timeoutTriggered                            ? "TIME_BUDGET"
-      : queryIndex >= allQueries.length             ? "QUERIES_EXHAUSTED"
-      : "ERROR";
-
-    if (ENABLE_KB_TOPUP && created < target && ["QUERIES_EXHAUSTED","RATE_LIMIT","BUDGET_GUARD","TIME_BUDGET"].includes(webStopReason)) {
-      await base44.entities.Campaign.update(campaignId, { progressPct: 90, countProspects: created });
-      const locLower = loc.toLowerCase();
-      const locCity  = locLower.split(",")[0].trim();
-      const hasRequiredSectors = campaign.industrySectors && campaign.industrySectors.length > 0;
-
-      const candidates = allKbEntities.filter(e => {
-        const domNorm = (e.domain || "").toLowerCase().replace(/^www\./, "");
-        if (existingDomains.has(domNorm)) return false;
+      const candidates = kbAll.filter(e => {
+        if (existingDomains.has((e.domain || "").toLowerCase())) return false;
         if (!e.domain || !e.website) return false;
         if (locCity && e.hqLocation) {
           const locE = e.hqLocation.toLowerCase();
@@ -366,124 +315,99 @@ Deno.serve(async (req) => {
         }
         return true;
       });
-      kbTopupCandidates = candidates.length;
 
       for (const kb of candidates) {
-        if (Date.now() - START_TIME > MAX_DURATION_MS) { timeoutTriggered = true; kbTopupStoppedReason = "TIME_BUDGET"; break; }
-        if (created >= target) { kbTopupStoppedReason = "TARGET_REACHED"; break; }
-        const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
-        if (existingDomains.has(domNorm)) { kbTopupSkippedDuplicate++; continue; }
+        if (Date.now() - START_TIME > MAX_DURATION_MS) { stopped = true; stopReason = "TIME_BUDGET"; break; }
+        if (kbTopupAdded >= (targetCount - prospectCount)) { stopReason = "TARGET_REACHED"; break; }
 
-        // STRICT sector matching: if campaign has sectors, KB must match
+        const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
+        if (existingDomains.has(domNorm)) continue;
+
+        // ============================================
+        // STRICT SECTOR MATCHING using industrySectors
+        // ============================================
         let matchedSectors = [];
-        if (hasRequiredSectors) {
-          const kbTags = Array.isArray(kb.tags) ? kb.tags : [];
-          matchedSectors = kbTags.filter(t => campaign.industrySectors.includes(t));
-          if (matchedSectors.length === 0) {
-            if (kbTags.length === 0) kbTopupRejectedMissingTagsCount++;
-            else kbTopupRejectedSectorCount++;
-            continue;
+        const kbSectors = Array.isArray(kb.industrySectors) ? kb.industrySectors : [];
+        const required = campaign.industrySectors || [];
+
+        if (required.length > 0) {
+          const match = kbSectors.some(s => required.includes(s));
+          if (!match) {
+            continue; // REJECT: no match
           }
+          matchedSectors = kbSectors.filter(s => required.includes(s));
         } else {
-          matchedSectors = (Array.isArray(kb.tags) && kb.tags.length > 0) ? kb.tags : [];
+          matchedSectors = kbSectors.length > 0 ? kbSectors : [];
         }
+        // ============================================
 
         await base44.entities.Prospect.create({
           campaignId,
-          ownerUserId:  campaign.ownerUserId,
-          companyName:  kb.name,
-          website:      kb.website || `https://${kb.domain}`,
-          domain:       domNorm,
-          industry:     kb.entityType || null,
-          industrySectors: matchedSectors.length > 0 ? matchedSectors : (hasRequiredSectors && campaign.industrySectors ? campaign.industrySectors : []),
-          industryLabel: matchedSectors.length > 0 ? matchedSectors[0] : (hasRequiredSectors && campaign.industrySectors ? campaign.industrySectors[0] : null),
-          location:     kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
-          entityType:   kb.entityType || "COMPANY",
-          status:       "NOUVEAU",
+          ownerUserId: campaign.ownerUserId,
+          companyName: kb.name,
+          website: kb.website || `https://${kb.domain}`,
+          domain: domNorm,
+          industry: kb.entityType || null,
+          industrySectors: matchedSectors,
+          industryLabel: matchedSectors[0] || null,
+          location: kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
+          entityType: kb.entityType || "COMPANY",
+          status: "NOUVEAU",
           sourceOrigin: "KB_TOPUP",
-          kbEntityId:   kb.id,
-          serpSnippet:  kb.notes || "",
-          sourceUrl:    kb.source || "",
+          kbEntityId: kb.id,
+          serpSnippet: kb.notes || "",
+          sourceUrl: kb.source || "",
         });
 
         existingDomains.add(domNorm);
-        created++;
         kbTopupAdded++;
-        
-        // Regular progress update during KB_TOPUP
+        prospectCount++;
+
         if (kbTopupAdded % 5 === 0) {
-          const pct = Math.min(98, 90 + Math.round((kbTopupAdded / Math.max(10, kbTopupCandidates)) * 8));
-          await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created, toolUsage: { lastUpdateAt: new Date().toISOString() } });
+          progressPct = Math.min(98, 90 + Math.round((kbTopupAdded / Math.max(10, candidates.length)) * 8));
+          await base44.entities.Campaign.update(campaignId, {
+            progressPct,
+            countProspects: prospectCount,
+            toolUsage: {
+              braveRequestsUsed,
+              braveMaxRequests: BRAVE_MAX_REQUESTS,
+              brave429Count: braveRLState.count429,
+              freshnessChecksDone,
+              webSearchQueryCount: webQueryCount,
+              kbTopupAdded,
+            },
+          });
         }
       }
-      if (!kbTopupStoppedReason) kbTopupStoppedReason = created >= target ? "TARGET_REACHED" : "KB_EXHAUSTED";
     }
 
     // Final status
-    if (timeoutTriggered && created > 0 && kbTopupStoppedReason !== "TIME_BUDGET") {
-      stopReason = "TIME_BUDGET_WEB_PARTIAL";
-    } else if (timeoutTriggered && created > 0) {
-      stopReason = "TIME_BUDGET";
-    } else if (created >= target) {
-      stopReason = "TARGET_REACHED";
-    } else if (kbTopupAdded > 0 && kbTopupStoppedReason === "KB_EXHAUSTED") {
-      stopReason = "KB_EXHAUSTED";
-    } else if (budgetGuardTriggered) {
-      stopReason = "BUDGET_GUARD";
-    } else if (rateLimitHit) {
-      stopReason = "RATE_LIMIT";
-    } else if (queryIndex >= allQueries.length) {
-      stopReason = "QUERIES_EXHAUSTED";
-    } else {
-      stopReason = "ERROR";
-    }
+    const finalProspects = await base44.entities.Prospect.filter({ campaignId });
+    const finalStatus = (prospectCount >= targetCount) ? "COMPLETED" : "DONE_PARTIAL";
 
-    if (created === 0) {
-      finalStatus = "FAILED";
-      errorMsg = stopReason === "RATE_LIMIT"   ? "Limite de l'API Brave atteinte. Réessayez dans quelques minutes."
-        : stopReason === "BUDGET_GUARD"        ? `Limite de requêtes Brave atteinte (${BRAVE_MAX_REQUESTS} req max).`
-        : "Aucun prospect valide trouvé — vérifiez les clés API Brave/SerpAPI";
-    } else if (created < target) {
-      finalStatus = "DONE_PARTIAL";
-      const kbNote = kbTopupAdded > 0 ? ` + ${kbTopupAdded} via KB` : "";
-      if      (stopReason === "KB_EXHAUSTED")  errorMsg = `Web + KB épuisés : ${created}/${target} (${createdWeb} web${kbNote}).`;
-      else if (stopReason === "BUDGET_GUARD")  errorMsg = `Limite Brave : ${createdWeb} web${kbNote} / ${target}. (${braveRequestsUsed}/${BRAVE_MAX_REQUESTS} req)`;
-      else if (stopReason === "RATE_LIMIT")    errorMsg = `Limite API : ${createdWeb} web${kbNote} / ${target}. Relancez dans quelques minutes.`;
-      else if (stopReason === "TIME_BUDGET")   errorMsg = `Timeout API : ${createdWeb} web${kbNote} / ${target}. Relancez pour compléter.`;
-      else                                     errorMsg = `Terminé : ${createdWeb} web${kbNote} / ${target}.${skippedDupe > 0 ? ` ${skippedDupe} doublons ignorés.` : ""}`;
-    } else {
-      finalStatus = "DONE";
-    }
-
-    // DONE_PARTIAL + suggestedNextStep
-    let suggestedNextStep = null;
-    if (finalStatus === "DONE_PARTIAL" && stopReason === "QUERIES_EXHAUSTED") {
-      if (campaign.industrySectors && campaign.industrySectors.length > 0) {
-        errorMsg = `Filtrage strict secteur : ${created}/${target}. Suggestions : enlever un secteur / élargir zone / retirer mots-clés.`;
-        suggestedNextStep = "RELAX_FILTERS";
-      }
-    }
-    if (finalStatus === "DONE_PARTIAL" && kbTopupRejectedSectorCount > 0) {
-      const kbRejectedNote = `(${kbTopupRejectedSectorCount} KB rejetées : pas de secteur match)`;
-      errorMsg += ` ${kbRejectedNote}`;
-      if (!suggestedNextStep) suggestedNextStep = "RELAX_FILTERS";
-    }
-
-    const toolUsage = {
-      queries: totalQueriesRun, skippedDuplicates: skippedDupe, filteredNonOrgCount,
-      queriesUsed: queryLog.slice(0, 10).map(q => q.query),
-      braveRequestsUsed, braveMaxRequests: BRAVE_MAX_REQUESTS,
-      braveRateLimitLimit: braveRLState.limit, braveRateLimitRemaining: braveRLState.remaining,
-      braveRateLimitReset: braveRLState.reset, brave429Count: braveRLState.count429,
-      stopReason, webStopReason, createdWeb, kbTopupAdded, kbTopupCandidates,
-      kbTopupSkippedDuplicate, kbTopupStoppedReason,
-      kbTopupRejectedSectorCount, kbTopupRejectedMissingTagsCount,
-      lastQueryIndex: queryIndex, allQueriesCount: allQueries.length,
-      queryLog: queryLog.slice(0, 30),
-    };
+    errorMessage = stopReason === "BUDGET_GUARD"
+      ? `Budget Brave atteint (${braveRequestsUsed}/${BRAVE_MAX_REQUESTS}). ${prospectCount} prospects trouvés.`
+      : stopReason === "QUERIES_EXHAUSTED"
+      ? `Requêtes épuisées. ${prospectCount} prospects trouvés.`
+      : null;
 
     await base44.entities.Campaign.update(campaignId, {
-      status: finalStatus, progressPct: 100, countProspects: created, errorMessage: errorMsg, toolUsage,
+      status: finalStatus,
+      progressPct: 100,
+      countProspects: finalProspects.length,
+      countAnalyzed: finalProspects.filter(p => ["ANALYSÉ","QUALIFIÉ","REJETÉ","EXPORTÉ"].includes(p.status)).length,
+      countQualified: finalProspects.filter(p => p.status === "QUALIFIÉ").length,
+      countRejected: finalProspects.filter(p => p.status === "REJETÉ").length,
+      errorMessage,
+      toolUsage: {
+        braveRequestsUsed,
+        braveMaxRequests: BRAVE_MAX_REQUESTS,
+        brave429Count: braveRLState.count429,
+        freshnessChecksDone,
+        webSearchQueryCount: webQueryCount,
+        kbTopupAdded,
+        stopReason: stopReason || "COMPLETED",
+      },
     });
 
     await base44.entities.ActivityLog.create({
@@ -492,41 +416,33 @@ Deno.serve(async (req) => {
       entityType: "Campaign",
       entityId: campaignId,
       payload: {
-        created, createdWeb, kbTopupAdded, kbTopupCandidates, target,
-        coverage: `${Math.round(created / target * 100)}%`,
-        skippedDuplicates: skippedDupe, filteredNonOrgCount, queriesRun: totalQueriesRun,
-        braveRequestsUsed, braveMaxRequests: BRAVE_MAX_REQUESTS,
-        brave429Count: braveRLState.count429, stopReason, webStopReason,
-        suggestedNextStep, kbTopupRejectedSectorCount, kbTopupRejectedMissingTagsCount,
+        prospectCount,
+        webQueryCount,
+        braveRequestsUsed,
+        kbTopupAdded,
+        durationMs: Date.now() - START_TIME,
+        stopReason: stopReason || "COMPLETED",
       },
-      status: created > 0 ? "SUCCESS" : "ERROR",
-      errorMessage: errorMsg,
+      status: "SUCCESS",
     });
 
-    return Response.json({ 
-      success: created > 0, created, target, coverage: Math.round(created / target * 100), 
-      skippedDuplicates: skippedDupe, filteredNonOrgCount, stopReason, suggestedNextStep 
+    return Response.json({
+      success: true,
+      prospectCount,
+      webQueryCount,
+      braveRequestsUsed,
+      kbTopupAdded,
+      status: finalStatus,
+      stopReason: stopReason || "COMPLETED",
     });
-
   } catch (error) {
-    // Emergency fallback: ensure campaign gets a final status
-    console.error("Critical error in runProspectSearch:", error.message);
-    
-    const emergencyFetch = await base44.entities.Prospect.filter({ campaignId }).catch(() => []);
-    const emergencyCreated = emergencyFetch.length;
-
-    finalStatus = emergencyCreated > 0 ? "DONE_PARTIAL" : "FAILED";
-    stopReason = "ERROR";
-    errorMsg = `Erreur système : ${error.message?.slice(0, 100) || "Erreur inconnue"}. ${emergencyCreated > 0 ? `${emergencyCreated} prospects créés avant l'erreur.` : ""}`;
-
-    try {
-      await base44.entities.Campaign.update(campaignId, {
-        status: finalStatus, progressPct: 100, countProspects: emergencyCreated, errorMessage: errorMsg, toolUsage: { stopReason, emergency: true },
-      });
-    } catch (_) {}
-
-    return Response.json({ 
-      success: false, error: errorMsg, status: finalStatus, created: emergencyCreated
-    }, { status: 500 });
+    const msg = error?.message || "Unknown error";
+    console.error("Search error:", msg);
+    await base44.entities.Campaign.update(campaignId, {
+      status: "FAILED",
+      errorMessage: msg.slice(0, 500),
+      progressPct,
+    });
+    return Response.json({ error: msg }, { status: 500 });
   }
 });
