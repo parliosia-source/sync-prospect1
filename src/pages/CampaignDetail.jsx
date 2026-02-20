@@ -253,35 +253,30 @@ export default function CampaignDetail() {
             </div>
           </div>
 
-          {/* DONE_PARTIAL — generic message, suggest RELAX_FILTERS */}
+          {/* DONE_PARTIAL — neutral message only */}
           {campaign.status === "DONE_PARTIAL" && (
             <div className="mt-3 rounded-xl px-4 py-3 text-sm flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800">
-              <span className="mt-0.5 text-amber-500">⚠</span>
+              <span className="mt-0.5 text-amber-500">ℹ</span>
               <div className="flex-1">
-                <span className="font-medium">Recherche incomplète : </span>
-                {campaign.errorMessage || "Résultats insuffisants pour l'objectif."}
+                <span className="font-medium">Résultats partiels — </span>
+                {counts["Tous"]} prospects trouvés avec les critères actuels.
                 {campaign.toolUsage?.suggestedNextStep === "RELAX_FILTERS" && (
                   <div className="text-xs mt-2 p-2 bg-amber-100 rounded border border-amber-200">
-                    <strong>💡 Suggestions :</strong> réduisez les secteurs filtrés, élargissez la zone géographique ou supprimez certains mots-clés.
+                    <strong>💡 Conseil :</strong> réduisez les secteurs filtrés, élargissez la zone géographique ou supprimez certains mots-clés.
                   </div>
                 )}
-                <div className="mt-1.5">
-                  <button onClick={handleReLaunch} className="text-xs underline text-amber-700 hover:text-amber-900">
-                    Relancer la recherche
-                  </button>
-                </div>
               </div>
             </div>
           )}
 
-          {/* Error — never show rate limit / Brave / 429 */}
-          {campaign.status === "FAILED" && campaign.errorMessage && (
+          {/* FAILED — generic message, no technical details */}
+          {campaign.status === "FAILED" && (
             <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-start gap-2">
-              <span className="font-medium">Erreur :</span>
+              <span className="font-medium">Aucun résultat —</span>
               <div>
-                {campaign.errorMessage.replace(/rate limit|Rate limit|429|brave|Brave/gi, "budget de recherche")}
+                Aucun prospect trouvé avec vos critères. Essayez d'élargir vos filtres.
                 <div className="mt-1.5">
-                  <button onClick={handleReLaunch} className="text-xs text-red-600 underline hover:text-red-900">Relancer la recherche</button>
+                  <button onClick={handleReLaunch} className="text-xs text-red-600 underline hover:text-red-900">Relancer</button>
                 </div>
               </div>
             </div>
