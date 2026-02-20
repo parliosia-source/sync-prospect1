@@ -17,6 +17,7 @@ Deno.serve(async (req) => {
     
     try {
       const existing = await base44.entities.KBEntity.filter({ domain: domNorm }).catch(() => []);
+      const sectors = Array.isArray(kb.industrySectors) ? kb.industrySectors : [];
       const payload = {
         name: kb.name,
         domain: domNorm,
@@ -28,9 +29,8 @@ Deno.serve(async (req) => {
         source: kb.source || null,
         lastVerifiedAt: kb.lastVerifiedAt || null,
         seedBatchId: kb.seedBatchId || null,
-        seedBatchIds: Array.isArray(kb.seedBatchIds) ? kb.seedBatchIds : [],
-        industrySectors: Array.isArray(kb.industrySectors) ? kb.industrySectors : [],
-        industryLabel: kb.industryLabel || null,
+        industrySectors: sectors,
+        industryLabel: sectors.length > 0 ? sectors[0] : null,
       };
 
       if (!dryRun) {
