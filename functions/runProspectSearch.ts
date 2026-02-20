@@ -541,6 +541,15 @@ Deno.serve(async (req) => {
     finalStatus = "COMPLETED";
   }
 
+  // PHASE B.4: DONE_PARTIAL + suggestedNextStep
+  let suggestedNextStep = null;
+  if (finalStatus === "DONE_PARTIAL" && stopReason === "QUERIES_EXHAUSTED") {
+    if (campaign.industrySectors && campaign.industrySectors.length > 0) {
+      errorMsg = `Filtrage strict secteur : ${created}/${target}. Suggestions : enlever un secteur / élargir zone / retirer mots-clés.`;
+      suggestedNextStep = "RELAX_FILTERS";
+    }
+  }
+
   const toolUsage = {
     queries: totalQueriesRun, skippedDuplicates: skippedDupe, filteredNonOrgCount,
     queriesUsed: queryLog.slice(0, 10).map(q => q.query),
