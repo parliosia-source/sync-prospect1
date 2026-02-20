@@ -100,204 +100,72 @@ const ANTI_BRUIT = {
   media: /\b(journal|newspaper|gazette|radio|tv|television|chaîne|channel|journal|presse|medias)\b/i,
 };
 
-// Filtre anti-bruit pour URLs/titres/snippets AVANT tout traitement
 function shouldRejectByNoise(url, title, snippet) {
-  const combined = (url + " " + title + " " + snippet).toLowerCase();
-  
-  // Vérifier chaque catégorie de bruit
+  if (BLOCKED_DOMAINS.has(getRegistrableDomain(new URL(url, "https://example.com").hostname))) return "blocked";
+  if (BLOCKED_URL_PATHS.test(url)) return "blocked_path";
+  const combined = `${title} ${snippet}`.toLowerCase();
   for (const [key, regex] of Object.entries(ANTI_BRUIT)) {
     if (regex.test(combined)) return key;
   }
-  
-  // PDFs et archives
-  if (/\.pdf$/i.test(url)) return "pdf";
-  if (/archive|archived|passé|old/i.test(combined)) return "archive";
-  
   return null;
 }
 
-const EXCLUDE_CONTENT_RE = /agence événementielle|event planner|organisateur professionnel|planificateur événement|bureau de congrès|répertoire fournisseurs|annuaire|directory|listing|database|crm\b|logiciel événement|software|saas|plateforme de gestion|template|thème wordpress|plugin|définition|procuration|règlements généraux|politique de gouvernance|guide complet|tout savoir sur|qu'est-ce qu'une/i;
+// ── Sector list (SYNC Prospect industry sectors) ──────────────────────────────────
+const ALL_SECTORS = new Set([
+  "Finance & Assurance", "Santé & Pharma", "Technologie", "Gouvernement & Public",
+  "Éducation & Formation", "Associations & OBNL", "Immobilier", "Droit & Comptabilité",
+  "Industrie & Manufacture", "Commerce de détail", "Transport & Logistique",
+]);
 
-const ARTICLE_TITLE_RE = /^(comment |pourquoi |quand |les \d+|top \d+|\d+ façons|guide |conseils |astuces |what is |how to |best |why |when |définition |c'est quoi |qu'est.ce |tout savoir)/i;
+async function normalizeResult(r, requiredSectors = []) {
+  const url = r.url || r.link || "";
+  const hostname = new URL(url, "https://example.com").hostname || "";
+  const domain = getRegistrableDomain(hostname).toLowerCase();
+  const title = r.title || r.description || "";
+  const snippet = r.snippet || r.description || "";
+  const combined = `${title} ${snippet}`.toLowerCase();
 
-const EVENT_SUBDOMAIN_RE = /^(congres|conference|conferences|event|events|evenement|evenements|agenda|calendrier|programme|program|summit|forum|gala|colloque|symposium|inscription|register)\b/i;
-const EVENT_TITLE_RE = /^(congrès|conférence|assemblée générale|assemblée|gala|colloque|symposium|forum|sommet|summit|journée|webinaire|séminaire|atelier)\b/i;
+  // Basic org name extraction
+  const titleMatch = title.match(/^([A-ZÀ-ÿ][a-zà-ÿ\s&\-'éèêëïîôûüœæ]{2,100}?)\s*[-–|‹›«»]/);
+  const companyName = titleMatch ? titleMatch[1].trim() : domain.split(".")[0].toUpperCase();
+  const website = url;
 
-const ORG_SIGNAL_RE = /\b(association|ordre|fédération|chambre|fondation|syndicat|corporation|entreprise|société|compagnie|inc\b|ltée|s\.a\.|organisme|réseau|conseil|institut|coalition)\b/i;
-const EVENT_SIGNAL_RE = /assemblée générale|conférence|gala|événement corporatif|corporate event|meeting annuel|summit|forum|symposium|colloque|webinaire|formation interne|townhall|town.?hall|réunion annuelle|congrès/i;
-
-// ── Homepage name fetcher ──────────────────────────────────────────────────────
-async function fetchOrgName(registrableDomain) {
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 3000);
-    const res = await fetch(`https://${registrableDomain}`, {
-      signal: ctrl.signal,
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; SYNCBot/1.0)" },
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    const html = await res.text();
-    const ogMatch = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i)
-      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:site_name["']/i);
-    if (ogMatch) return cleanOrgName(ogMatch[1]);
-    const titleMatch = html.match(/<title>([^<]{3,80})<\/title>/i);
-    if (titleMatch) return cleanOrgName(titleMatch[1]);
-    return null;
-  } catch (_) { return null; }
-}
-
-function cleanOrgName(raw) {
-  return raw.replace(/\s*[|\-–—]\s*.{0,80}$/, "").replace(/\s+/g, " ").trim().slice(0, 80);
-}
-
-// ── Sector matcher helper (basic keyword match for fast pre-screening)
-function matchesSector(text, sectors) {
-  if (!sectors || sectors.length === 0) return true;
-  const lower = text.toLowerCase();
-  const sectorKeywords = {
-    "Finance & Assurance": /finance|assurance|banque|bank|crédit|insurance|hypothèque/i,
-    "Santé & Pharma": /santé|pharma|medical|médical|hôpital|hospital|clinique|dentaire|doctor/i,
-    "Technologie": /tech|software|informatique|it |digital|logiciel|app|cloud|saas|startup/i,
-    "Gouvernement & Public": /gouvernement|government|municipal|municipal|public|administration|état|ministère/i,
-    "Éducation & Formation": /éducation|école|school|université|university|collège|formation|training|cégep/i,
-    "Associations & OBNL": /association|organisme|obnl|non-profit|ngô|charity|fondation|fédération/i,
-    "Immobilier": /immobilier|real estate|property|développeur|developer|construction|rénovation/i,
-    "Droit & Comptabilité": /droit|legal|comptable|accounting|cabinet|law firm|avocat/i,
-    "Industrie & Manufacture": /industrie|manufacture|factory|usine|production|fabrication|mining|minier/i,
-    "Commerce de détail": /retail|commerce|boutique|magasin|store|détail|retail|vente/i,
-    "Transport & Logistique": /transport|logistique|logistics|delivery|livraison|cargo|shipping/i,
-  };
-  return sectors.some(s => {
-    const regex = sectorKeywords[s];
-    return regex ? regex.test(lower) : false;
-  });
-}
-
-// ── normalizeResult ────────────────────────────────────────────────────────────
-async function normalizeResult(r, campaignSectors) {
-  const url = r.url || r.link;
-  if (!url) return { isValid: false, resultType: "OTHER", reason: "No URL" };
-
-  let parsedUrl;
-  try { parsedUrl = new URL(url.startsWith("http") ? url : "https://" + url); }
-  catch (_) { return { isValid: false, resultType: "OTHER", reason: "Invalid URL" }; }
-
-  const rawHost = parsedUrl.hostname.replace(/^www\./, "");
-  const registrableDomain = getRegistrableDomain(rawHost);
-
-  if (BLOCKED_DOMAINS.has(rawHost) || BLOCKED_DOMAINS.has(registrableDomain)) {
-    return { isValid: false, resultType: "OTHER", reason: "Domain blocked" };
-  }
-  if (BLOCKED_URL_PATHS.test(url)) {
-    return { isValid: false, resultType: "OTHER", reason: "URL path blocked" };
+  // Sector matching
+  const matchedSectors = [];
+  for (const sector of requiredSectors) {
+    const sectorLower = sector.toLowerCase();
+    if (combined.includes(sectorLower)) matchedSectors.push(sector);
   }
 
-  const rawTitle   = r.title || "";
-  const rawSnippet = r.snippet || r.description || "";
-  const combined   = (rawTitle + " " + rawSnippet).toLowerCase();
+  const locationText = combined.match(/\b(montréal|quebec|ottawa|toronto|vancouver|calgary|winnipeg|halifax)\b/i)?.[0] || null;
+  const industry = matchedSectors.length > 0 ? matchedSectors[0] : null;
 
-  if (EXCLUDE_CONTENT_RE.test(combined)) {
-    return { isValid: false, resultType: "ARTICLE", reason: "Excluded content keywords" };
-  }
-  if (ARTICLE_TITLE_RE.test(rawTitle)) {
-    return { isValid: false, resultType: "ARTICLE", reason: "Article title pattern" };
-  }
-
-  const hasOrgSignal   = ORG_SIGNAL_RE.test(rawTitle + " " + rawSnippet + " " + registrableDomain);
-  const hasEventSignal = EVENT_SIGNAL_RE.test(combined);
-  if (!hasOrgSignal || !hasEventSignal) {
-    const noOrg = !hasOrgSignal ? "no org signal" : "";
-    const noEvent = !hasEventSignal ? "no event signal" : "";
-    return { isValid: false, resultType: "OTHER", reason: `${noOrg} ${noEvent}`.trim() };
-  }
-
-  const firstLabel = rawHost.split(".")[0];
-  const isEventSubdomain = (rawHost !== registrableDomain) && EVENT_SUBDOMAIN_RE.test(firstLabel);
-
-  const domain    = registrableDomain;
-  const website   = `https://${domain}`;
-  const sourceUrl = url;
-
-  // Always fetch homepage first — it's the most reliable source for the real org name
-  let companyName = await fetchOrgName(domain);
-
-  // Fallback: clean up the SERP title if homepage fetch failed
-  if (!companyName) {
-    const cleanedTitle = rawTitle
-      .replace(/\s*[-–—|]\s*(congrès|conférence|gala|assemblée|colloque|forum|événement|event|2024|2025|2026|programme|inscription|ordre du jour)\b.*/i, "")
-      .replace(/\s*[-–—|]\s*\d{4}\b.*/i, "")
-      .trim();
-    // Only accept if it doesn't look like an event title or an article
-    if (cleanedTitle.length >= 3 && !EVENT_TITLE_RE.test(cleanedTitle) && !isEventSubdomain) {
-      companyName = cleanedTitle.slice(0, 80);
-    }
-  }
-
-  // Reject if we still can't determine a real org name
-  if (!companyName) {
-    return { isValid: false, resultType: "OTHER", reason: "No company name extracted" };
-  }
-
-  // PHASE B: Check sector match if required
-  const sectorMatch = matchesSector(companyName + " " + rawSnippet + " " + rawTitle, campaignSectors);
-  
   return {
-    isValid: true,
+    domain, companyName, website, industry, locationText,
+    matchedSectors,
+    isValid: !!domain && !!companyName,
     resultType: "ORG_WE_WANT",
-    sectorMatch,
-    matchedSectors: campaignSectors || [],
-    companyName,
-    website,
-    domain,
-    industry: null,
-    locationText: null,
-    reason: "Valid org with event signals"
+    sectorMatch: matchedSectors.length > 0 || requiredSectors.length === 0,
   };
 }
 
-// ── Query builders ─────────────────────────────────────────────────────────────
-const EXCL = `-Eventbrite -"10times" -"pagesjaunes" -"tourismexpress" -annuaire -répertoire -"liste d'événements" -"calendrier d'événements" -"agence événementielle" -"event planner" -"planificateur"`;
+// ── Query builders ──────────────────────────────────────────────────────────────
+const EXCL = '-site:linkedin.com -site:facebook.com -site:glassdoor.com -site:indeed.com -site:eventbrite.com -site:wikipedia.org -filetype:pdf';
 
 function buildQueryVariants(campaign, loc) {
-  const sectors  = (campaign.industrySectors || []).slice(0, 2);
-  const sectorStr = sectors.join(" ");
-  const kws = (campaign.keywords || []).slice(0, 3).join(" ");
+  const sector = (campaign.industrySectors || []).slice(0, 3).map(s => `"${s}"`).join(" ");
+  const kws = (campaign.keywords || []).join(" ");
+  const locQ = loc.split(",")[0].trim();
+  const locAll = [locQ, `"${locQ}"`, loc].filter(Boolean);
+
   const queries = [];
-
-  if (sectorStr) {
+  for (const l of locAll) {
+    const base = `${sector} conférence OU congrès OU "assemblée générale" ${l} organisation entreprise ${kws} ${EXCL}`;
     queries.push(
-      `association ${sectorStr} ${loc} congrès annuel site web ${EXCL}`,
-      `fédération ${sectorStr} ${loc} assemblée générale annuelle ${EXCL}`,
-      `ordre professionnel ${sectorStr} ${loc} congrès ${EXCL}`,
-      `syndicat ${sectorStr} ${loc} assemblée générale ${EXCL}`,
-      `entreprise ${sectorStr} ${loc} conférence annuelle événement corporatif ${EXCL}`,
-      `société ${sectorStr} ${loc} gala annuel OR réunion annuelle ${EXCL}`,
-      `grande entreprise ${sectorStr} ${loc} formation interne townhall ${EXCL}`,
-      `chambre de commerce ${sectorStr} ${loc} gala membres ${EXCL}`,
-      `conseil ${sectorStr} ${loc} conférence assemblée ${EXCL}`,
-    );
-  }
-
-  queries.push(
-    `association professionnelle ${loc} congrès annuel site web ${EXCL}`,
-    `fédération ${loc} assemblée générale congrès ${EXCL}`,
-    `ordre professionnel ${loc} assemblée congrès ${EXCL}`,
-    `entreprise ${loc} "événement corporatif" OR "conférence annuelle" OR "gala annuel" ${EXCL}`,
-    `société ${loc} townhall OR "formation interne" OR "réunion annuelle" ${EXCL}`,
-    `chambre de commerce ${loc} gala membres conférence ${EXCL}`,
-    `conseil ${loc} "conférence annuelle" OR "assemblée annuelle" ${EXCL}`,
-    `syndicat ${loc} assemblée générale annuelle ${EXCL}`,
-    `institut ${loc} conférence colloque annuel ${EXCL}`,
-    `site:.ca (association OR fédération OR ordre) ${loc} congrès "événement annuel" ${EXCL}`,
-    `site:.ca entreprise ${loc} gala OR conférence OR "assemblée générale" ${EXCL}`,
-    `organisation ${loc} "congrès annuel" OR "assemblée générale" secteur ${sectorStr} ${EXCL}`,
-  );
-
-  if (kws) {
-    queries.push(
-      `"${kws}" ${loc} association OR entreprise conférence annuelle ${EXCL}`,
-      `${kws} ${loc} gala OR congrès OR "assemblée générale" ${EXCL}`,
+      `${base}`,
+      `gala OR "soirée corporative" ${l} ${sector} ${kws} ${EXCL}`,
+      `"événement annuel" OR "réunion annuelle" ${l} ${sector} ${kws} ${EXCL}`,
+      `${kws} ${l} gala OR congrès OR "assemblée générale" ${EXCL}`,
     );
   }
 
@@ -334,271 +202,331 @@ Deno.serve(async (req) => {
   const START_TIME = Date.now();
   const MAX_DURATION_MS = 70_000; // 70 seconds safety limit
   let timeoutTriggered = false;
+  let finalStatus, errorMsg, stopReason;
 
   try {
     await base44.entities.Campaign.update(campaignId, { status: "RUNNING", progressPct: 5, lastRunAt: new Date().toISOString() });
 
-  const loc    = campaign.locationQuery || "Montréal";
-  const target = campaign.targetCount || 50;
+    const loc    = campaign.locationQuery || "Montréal";
+    const target = campaign.targetCount || 50;
 
-  let appSettings = {};
-  try {
-    const settings = await base44.entities.AppSettings.filter({ settingsId: "global" });
-    if (settings.length > 0) appSettings = settings[0];
-  } catch (_) {}
+    let appSettings = {};
+    try {
+      const settings = await base44.entities.AppSettings.filter({ settingsId: "global" });
+      if (settings.length > 0) appSettings = settings[0];
+    } catch (_) {}
 
-  const BRAVE_MAX_REQUESTS  = appSettings.braveMaxRequestsPerCampaign || 250;
-  const BRAVE_MAX_PAGES     = appSettings.braveMaxPagesPerQuery || 5;
-  const BRAVE_MIN_REMAINING = appSettings.braveMinRemainingBeforePause || 2;
-  const ENABLE_KB_TOPUP     = appSettings.enableKbTopUp !== false;
+    const BRAVE_MAX_REQUESTS  = appSettings.braveMaxRequestsPerCampaign || 250;
+    const BRAVE_MAX_PAGES     = appSettings.braveMaxPagesPerQuery || 5;
+    const BRAVE_MIN_REMAINING = appSettings.braveMinRemainingBeforePause || 2;
+    const ENABLE_KB_TOPUP     = appSettings.enableKbTopUp !== false;
 
-  const existing = await base44.entities.Prospect.filter({ campaignId });
-  const existingDomains = new Set(existing.map(p => p.domain).filter(Boolean));
-  let created = existing.length;
+    const existing = await base44.entities.Prospect.filter({ campaignId });
+    const existingDomains = new Set(existing.map(p => p.domain).filter(Boolean));
+    let created = existing.length;
 
-  let allKbEntities = [];
-  let kbDomains = new Set();
-  try {
-    allKbEntities = await base44.entities.KBEntity.filter({}, "-created_date", 500);
-    allKbEntities.forEach(e => { if (e.domain) kbDomains.add(e.domain.toLowerCase().replace(/^www\./, "")); });
-  } catch (_) {}
+    let allKbEntities = [];
+    let kbDomains = new Set();
+    try {
+      allKbEntities = await base44.entities.KBEntity.filter({}, "-created_date", 500);
+      allKbEntities.forEach(e => { if (e.domain) kbDomains.add(e.domain.toLowerCase().replace(/^www\./, "")); });
+    } catch (_) {}
 
-  const allQueries = buildQueryVariants(campaign, loc);
-  let queryIndex = 0;
-  let skippedDupe = 0;
-  let filteredNonOrgCount = 0;
-  let braveRequestsUsed = 0;
-  let createdWeb = 0;
-  let totalQueriesRun = 0;
-  let rateLimitHit = false;
-  let budgetGuardTriggered = false;
-  const queryLog = [];
+    const allQueries = buildQueryVariants(campaign, loc);
+    let queryIndex = 0;
+    let skippedDupe = 0;
+    let filteredNonOrgCount = 0;
+    let braveRequestsUsed = 0;
+    let createdWeb = 0;
+    let totalQueriesRun = 0;
+    let rateLimitHit = false;
+    let budgetGuardTriggered = false;
+    const queryLog = [];
 
-  const runQuery = async (query, maxPagesOverride) => {
-    if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { budgetGuardTriggered = true; return; }
-    const maxPages = maxPagesOverride ?? Math.min(BRAVE_MAX_PAGES, (target - created) > 50 ? 7 : 5);
+    const runQuery = async (query, maxPagesOverride) => {
+      if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { budgetGuardTriggered = true; return; }
+      const maxPages = maxPagesOverride ?? Math.min(BRAVE_MAX_PAGES, (target - created) > 50 ? 7 : 5);
 
-    for (let page = 0; page < maxPages && created < target && !budgetGuardTriggered; page++) {
-      let results = [];
-      try {
-        const braveResult = await braveSearch(query, 10, page * 10);
-        braveRequestsUsed++;
-        if (braveRLState.remaining >= 0 && braveRLState.remaining <= BRAVE_MIN_REMAINING) await waitForBraveReset(1000);
-        if (braveResult.rateLimited) { rateLimitHit = true; break; }
-        results = braveResult.results;
-      } catch (_) {}
+      for (let page = 0; page < maxPages && created < target && !budgetGuardTriggered; page++) {
+        if (Date.now() - START_TIME > MAX_DURATION_MS) { timeoutTriggered = true; return; }
+        let results = [];
+        try {
+          const braveResult = await braveSearch(query, 10, page * 10);
+          braveRequestsUsed++;
+          if (braveRLState.remaining >= 0 && braveRLState.remaining <= BRAVE_MIN_REMAINING) await waitForBraveReset(1000);
+          if (braveResult.rateLimited) { rateLimitHit = true; break; }
+          results = braveResult.results;
+        } catch (_) {}
 
-      if (results.length === 0 && SERPAPI_KEY) {
-        try { results = await serpSearch(query, page * 10); } catch (_) {}
-      }
-      if (results.length === 0) break;
-
-      totalQueriesRun++;
-      let pageCreated = 0;
-
-      for (const r of results) {
-        if (created >= target) break;
-        
-        // PHASE B.1: Anti-bruit PRÉ-LLM — reject before any processing
-        const noiseType = shouldRejectByNoise(r.url || r.link || "", r.title || "", r.snippet || r.description || "");
-        if (noiseType) {
-          filteredNonOrgCount++;
-          continue;
+        if (results.length === 0 && SERPAPI_KEY) {
+          try { results = await serpSearch(query, page * 10); } catch (_) {}
         }
-        
-        // PHASE B.2: normalizeResult with sector checking
-        const normalized = await normalizeResult(r, campaign.industrySectors);
-        
-        // PHASE B.3: Strict acceptance rule
-        const hasRequiredSectors = campaign.industrySectors && campaign.industrySectors.length > 0;
-        const isAccepted = normalized.isValid 
-          && normalized.resultType === "ORG_WE_WANT"
-          && (!hasRequiredSectors || normalized.sectorMatch);
+        if (results.length === 0) break;
+
+        totalQueriesRun++;
+        let pageCreated = 0;
+
+        for (const r of results) {
+          if (created >= target) break;
           
-        if (!isAccepted) { 
-          filteredNonOrgCount++; 
-          continue; 
-        }
+          const noiseType = shouldRejectByNoise(r.url || r.link || "", r.title || "", r.snippet || r.description || "");
+          if (noiseType) {
+            filteredNonOrgCount++;
+            continue;
+          }
+          
+          const normalized = await normalizeResult(r, campaign.industrySectors);
+          
+          const hasRequiredSectors = campaign.industrySectors && campaign.industrySectors.length > 0;
+          const isAccepted = normalized.isValid 
+            && normalized.resultType === "ORG_WE_WANT"
+            && (!hasRequiredSectors || normalized.sectorMatch);
+            
+          if (!isAccepted) { 
+            filteredNonOrgCount++; 
+            continue; 
+          }
 
-        const { domain, companyName, website } = normalized;
-        if (existingDomains.has(domain) || kbDomains.has(domain)) { skippedDupe++; continue; }
+          const { domain, companyName, website } = normalized;
+          if (existingDomains.has(domain) || kbDomains.has(domain)) { skippedDupe++; continue; }
+
+          await base44.entities.Prospect.create({
+            campaignId,
+            ownerUserId: campaign.ownerUserId,
+            companyName,
+            website,
+            domain,
+            industry:    normalized.industry,
+            industrySectors: Array.isArray(normalized.matchedSectors) && normalized.matchedSectors.length > 0
+              ? normalized.matchedSectors
+              : (campaign.industrySectors || []),
+            industryLabel: Array.isArray(normalized.matchedSectors) && normalized.matchedSectors.length > 0
+              ? normalized.matchedSectors[0]
+              : ((campaign.industrySectors && campaign.industrySectors.length > 0) ? campaign.industrySectors[0] : null),
+            location:    normalized.locationText ? { city: normalized.locationText, country: "CA" } : { country: "CA" },
+            entityType:  "COMPANY",
+            status:      "NOUVEAU",
+            sourceOrigin: "WEB",
+            serpSnippet: r?.snippet || r?.description || "",
+            sourceUrl:   r?.url || r?.link || "",
+          });
+
+          existingDomains.add(domain);
+          created++;
+          createdWeb++;
+          pageCreated++;
+        }
+        queryLog.push({ query: query.slice(0, 80), page, resultsRaw: results.length, added: pageCreated });
+      }
+    };
+
+    // Phase 1: main queries
+    while (created < target && queryIndex < allQueries.length && !rateLimitHit && !budgetGuardTriggered && !timeoutTriggered) {
+      const pct = Math.min(87, Math.round((created / target) * 87));
+      await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
+      await runQuery(allQueries[queryIndex]);
+      queryIndex++;
+    }
+
+    // Phase 2: broad fallbacks if < 70% of target
+    if (created < target * 0.7 && !rateLimitHit && !budgetGuardTriggered && !timeoutTriggered) {
+      const broadFallbacks = buildBroadFallbacks(campaign, loc);
+      for (const q of broadFallbacks) {
+        if (created >= target || budgetGuardTriggered || timeoutTriggered) break;
+        const pct = Math.min(87, Math.round((created / target) * 87));
+        await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
+        await runQuery(q, 3);
+      }
+    }
+
+    // Phase KB_TOPUP
+    let kbTopupAdded = 0, kbTopupSkippedDuplicate = 0, kbTopupCandidates = 0, kbTopupStoppedReason = null;
+    let kbTopupRejectedSectorCount = 0, kbTopupRejectedMissingTagsCount = 0;
+
+    const webStopReason = created >= target         ? "TARGET_REACHED"
+      : budgetGuardTriggered                        ? "BUDGET_GUARD"
+      : rateLimitHit                                ? "RATE_LIMIT"
+      : timeoutTriggered                            ? "TIME_BUDGET"
+      : queryIndex >= allQueries.length             ? "QUERIES_EXHAUSTED"
+      : "ERROR";
+
+    if (ENABLE_KB_TOPUP && created < target && ["QUERIES_EXHAUSTED","RATE_LIMIT","BUDGET_GUARD","TIME_BUDGET"].includes(webStopReason)) {
+      await base44.entities.Campaign.update(campaignId, { progressPct: 90, countProspects: created });
+      const locLower = loc.toLowerCase();
+      const locCity  = locLower.split(",")[0].trim();
+      const hasRequiredSectors = campaign.industrySectors && campaign.industrySectors.length > 0;
+
+      const candidates = allKbEntities.filter(e => {
+        const domNorm = (e.domain || "").toLowerCase().replace(/^www\./, "");
+        if (existingDomains.has(domNorm)) return false;
+        if (!e.domain || !e.website) return false;
+        if (locCity && e.hqLocation) {
+          const locE = e.hqLocation.toLowerCase();
+          if (!locE.includes("canada") && !locE.includes(locCity)) return false;
+        }
+        return true;
+      });
+      kbTopupCandidates = candidates.length;
+
+      for (const kb of candidates) {
+        if (Date.now() - START_TIME > MAX_DURATION_MS) { timeoutTriggered = true; kbTopupStoppedReason = "TIME_BUDGET"; break; }
+        if (created >= target) { kbTopupStoppedReason = "TARGET_REACHED"; break; }
+        const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
+        if (existingDomains.has(domNorm)) { kbTopupSkippedDuplicate++; continue; }
+
+        // STRICT sector matching: if campaign has sectors, KB must match
+        let matchedSectors = [];
+        if (hasRequiredSectors) {
+          const kbTags = Array.isArray(kb.tags) ? kb.tags : [];
+          matchedSectors = kbTags.filter(t => campaign.industrySectors.includes(t));
+          if (matchedSectors.length === 0) {
+            if (kbTags.length === 0) kbTopupRejectedMissingTagsCount++;
+            else kbTopupRejectedSectorCount++;
+            continue;
+          }
+        } else {
+          matchedSectors = (Array.isArray(kb.tags) && kb.tags.length > 0) ? kb.tags : [];
+        }
 
         await base44.entities.Prospect.create({
           campaignId,
-          ownerUserId: campaign.ownerUserId,
-          companyName,
-          website,
-          domain,
-          industry:    normalized.industry,
-          industrySectors: Array.isArray(normalized.matchedSectors) && normalized.matchedSectors.length > 0
-            ? normalized.matchedSectors
-            : (campaign.industrySectors || []),
-          industryLabel: Array.isArray(normalized.matchedSectors) && normalized.matchedSectors.length > 0
-            ? normalized.matchedSectors[0]
-            : ((campaign.industrySectors && campaign.industrySectors.length > 0) ? campaign.industrySectors[0] : null),
-          location:    normalized.locationText ? { city: normalized.locationText, country: "CA" } : { country: "CA" },
-          entityType:  "COMPANY",
-          status:      "NOUVEAU",
-          sourceOrigin: "WEB",
-          serpSnippet: r?.snippet || r?.description || "",
-          sourceUrl:   r?.url || r?.link || "",
+          ownerUserId:  campaign.ownerUserId,
+          companyName:  kb.name,
+          website:      kb.website || `https://${kb.domain}`,
+          domain:       domNorm,
+          industry:     kb.entityType || null,
+          industrySectors: matchedSectors.length > 0 ? matchedSectors : (hasRequiredSectors && campaign.industrySectors ? campaign.industrySectors : []),
+          industryLabel: matchedSectors.length > 0 ? matchedSectors[0] : (hasRequiredSectors && campaign.industrySectors ? campaign.industrySectors[0] : null),
+          location:     kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
+          entityType:   kb.entityType || "COMPANY",
+          status:       "NOUVEAU",
+          sourceOrigin: "KB_TOPUP",
+          kbEntityId:   kb.id,
+          serpSnippet:  kb.notes || "",
+          sourceUrl:    kb.source || "",
         });
 
-        existingDomains.add(domain);
+        existingDomains.add(domNorm);
         created++;
-        createdWeb++;
-        pageCreated++;
+        kbTopupAdded++;
+        
+        // Regular progress update during KB_TOPUP
+        if (kbTopupAdded % 5 === 0) {
+          const pct = Math.min(98, 90 + Math.round((kbTopupAdded / Math.max(10, kbTopupCandidates)) * 8));
+          await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created, toolUsage: { lastUpdateAt: new Date().toISOString() } });
+        }
       }
-      queryLog.push({ query: query.slice(0, 80), page, resultsRaw: results.length, added: pageCreated });
+      if (!kbTopupStoppedReason) kbTopupStoppedReason = created >= target ? "TARGET_REACHED" : "KB_EXHAUSTED";
     }
-  };
 
-  // Phase 1: main queries
-  while (created < target && queryIndex < allQueries.length && !rateLimitHit && !budgetGuardTriggered) {
-    const pct = Math.min(87, Math.round((created / target) * 87));
-    await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
-    await runQuery(allQueries[queryIndex]);
-    queryIndex++;
-  }
-
-  // Phase 2: broad fallbacks if < 70% of target
-  if (created < target * 0.7 && !rateLimitHit && !budgetGuardTriggered) {
-    const broadFallbacks = buildBroadFallbacks(campaign, loc);
-    for (const q of broadFallbacks) {
-      if (created >= target || budgetGuardTriggered) break;
-      const pct = Math.min(87, Math.round((created / target) * 87));
-      await base44.entities.Campaign.update(campaignId, { progressPct: pct, countProspects: created });
-      await runQuery(q, 3);
+    // Final status
+    if (timeoutTriggered && created > 0 && kbTopupStoppedReason !== "TIME_BUDGET") {
+      stopReason = "TIME_BUDGET_WEB_PARTIAL";
+    } else if (timeoutTriggered && created > 0) {
+      stopReason = "TIME_BUDGET";
+    } else if (created >= target) {
+      stopReason = "TARGET_REACHED";
+    } else if (kbTopupAdded > 0 && kbTopupStoppedReason === "KB_EXHAUSTED") {
+      stopReason = "KB_EXHAUSTED";
+    } else if (budgetGuardTriggered) {
+      stopReason = "BUDGET_GUARD";
+    } else if (rateLimitHit) {
+      stopReason = "RATE_LIMIT";
+    } else if (queryIndex >= allQueries.length) {
+      stopReason = "QUERIES_EXHAUSTED";
+    } else {
+      stopReason = "ERROR";
     }
-  }
 
-  // Phase KB_TOPUP
-  let kbTopupAdded = 0, kbTopupSkippedDuplicate = 0, kbTopupCandidates = 0, kbTopupStoppedReason = null;
+    if (created === 0) {
+      finalStatus = "FAILED";
+      errorMsg = stopReason === "RATE_LIMIT"   ? "Limite de l'API Brave atteinte. Réessayez dans quelques minutes."
+        : stopReason === "BUDGET_GUARD"        ? `Limite de requêtes Brave atteinte (${BRAVE_MAX_REQUESTS} req max).`
+        : "Aucun prospect valide trouvé — vérifiez les clés API Brave/SerpAPI";
+    } else if (created < target) {
+      finalStatus = "DONE_PARTIAL";
+      const kbNote = kbTopupAdded > 0 ? ` + ${kbTopupAdded} via KB` : "";
+      if      (stopReason === "KB_EXHAUSTED")  errorMsg = `Web + KB épuisés : ${created}/${target} (${createdWeb} web${kbNote}).`;
+      else if (stopReason === "BUDGET_GUARD")  errorMsg = `Limite Brave : ${createdWeb} web${kbNote} / ${target}. (${braveRequestsUsed}/${BRAVE_MAX_REQUESTS} req)`;
+      else if (stopReason === "RATE_LIMIT")    errorMsg = `Limite API : ${createdWeb} web${kbNote} / ${target}. Relancez dans quelques minutes.`;
+      else if (stopReason === "TIME_BUDGET")   errorMsg = `Timeout API : ${createdWeb} web${kbNote} / ${target}. Relancez pour compléter.`;
+      else                                     errorMsg = `Terminé : ${createdWeb} web${kbNote} / ${target}.${skippedDupe > 0 ? ` ${skippedDupe} doublons ignorés.` : ""}`;
+    } else {
+      finalStatus = "DONE";
+    }
 
-  const webStopReason = created >= target         ? "TARGET_REACHED"
-    : budgetGuardTriggered                        ? "BUDGET_GUARD"
-    : rateLimitHit                                ? "RATE_LIMIT"
-    : queryIndex >= allQueries.length             ? "QUERIES_EXHAUSTED"
-    : "ERROR";
-
-  if (ENABLE_KB_TOPUP && created < target && ["QUERIES_EXHAUSTED","RATE_LIMIT","BUDGET_GUARD"].includes(webStopReason)) {
-    await base44.entities.Campaign.update(campaignId, { progressPct: 90, countProspects: created });
-    const locLower = loc.toLowerCase();
-    const locCity  = locLower.split(",")[0].trim();
-
-    const candidates = allKbEntities.filter(e => {
-      const domNorm = (e.domain || "").toLowerCase().replace(/^www\./, "");
-      if (existingDomains.has(domNorm)) return false;
-      if (!e.domain || !e.website) return false;
-      if (locCity && e.hqLocation) {
-        const locE = e.hqLocation.toLowerCase();
-        if (!locE.includes("canada") && !locE.includes(locCity)) return false;
+    // DONE_PARTIAL + suggestedNextStep
+    let suggestedNextStep = null;
+    if (finalStatus === "DONE_PARTIAL" && stopReason === "QUERIES_EXHAUSTED") {
+      if (campaign.industrySectors && campaign.industrySectors.length > 0) {
+        errorMsg = `Filtrage strict secteur : ${created}/${target}. Suggestions : enlever un secteur / élargir zone / retirer mots-clés.`;
+        suggestedNextStep = "RELAX_FILTERS";
       }
-      return true;
-    });
-    kbTopupCandidates = candidates.length;
-
-    for (const kb of candidates) {
-      if (created >= target) { kbTopupStoppedReason = "TARGET_REACHED"; break; }
-      const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
-      if (existingDomains.has(domNorm)) { kbTopupSkippedDuplicate++; continue; }
-
-      await base44.entities.Prospect.create({
-        campaignId,
-        ownerUserId:  campaign.ownerUserId,
-        companyName:  kb.name,
-        website:      kb.website || `https://${kb.domain}`,
-        domain:       domNorm,
-        industry:     kb.entityType || null,
-        industrySectors: Array.isArray(kb.tags) && kb.tags.length > 0 ? kb.tags : [],
-        industryLabel: (Array.isArray(kb.tags) && kb.tags.length > 0 ? kb.tags[0] : (kb.entityType || null)),
-        location:     kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
-        entityType:   kb.entityType || "COMPANY",
-        status:       "NOUVEAU",
-        sourceOrigin: "KB_TOPUP",
-        kbEntityId:   kb.id,
-        serpSnippet:  kb.notes || "",
-        sourceUrl:    kb.source || "",
-      });
-
-      existingDomains.add(domNorm);
-      created++;
-      kbTopupAdded++;
     }
-    if (!kbTopupStoppedReason) kbTopupStoppedReason = created >= target ? "TARGET_REACHED" : "KB_EXHAUSTED";
-  }
-
-  // Final status
-  let stopReason;
-  if      (created >= target)                                           stopReason = "TARGET_REACHED";
-  else if (kbTopupAdded > 0 && kbTopupStoppedReason === "KB_EXHAUSTED") stopReason = "KB_EXHAUSTED";
-  else if (budgetGuardTriggered)                                         stopReason = "BUDGET_GUARD";
-  else if (rateLimitHit)                                                 stopReason = "RATE_LIMIT";
-  else if (queryIndex >= allQueries.length)                              stopReason = "QUERIES_EXHAUSTED";
-  else                                                                   stopReason = "ERROR";
-
-  let finalStatus, errorMsg;
-  if (created === 0) {
-    finalStatus = "FAILED";
-    errorMsg = stopReason === "RATE_LIMIT"   ? "Limite de l'API Brave atteinte. Réessayez dans quelques minutes."
-      : stopReason === "BUDGET_GUARD"        ? `Limite de requêtes Brave atteinte (${BRAVE_MAX_REQUESTS} req max).`
-      : "Aucun prospect valide trouvé — vérifiez les clés API Brave/SerpAPI";
-  } else if (created < target) {
-    finalStatus = "DONE_PARTIAL";
-    const kbNote = kbTopupAdded > 0 ? ` + ${kbTopupAdded} via KB` : "";
-    if      (stopReason === "KB_EXHAUSTED")  errorMsg = `Web + KB épuisés : ${created}/${target} (${createdWeb} web${kbNote}).`;
-    else if (stopReason === "BUDGET_GUARD")  errorMsg = `Limite Brave : ${createdWeb} web${kbNote} / ${target}. (${braveRequestsUsed}/${BRAVE_MAX_REQUESTS} req)`;
-    else if (stopReason === "RATE_LIMIT")    errorMsg = `Limite API : ${createdWeb} web${kbNote} / ${target}. Relancez dans quelques minutes.`;
-    else                                     errorMsg = `Terminé : ${createdWeb} web${kbNote} / ${target}.${skippedDupe > 0 ? ` ${skippedDupe} doublons ignorés.` : ""}`;
-  } else {
-    // Align with expected statuses: DONE / DONE_PARTIAL / FAILED
-    finalStatus = "DONE";
-  }
-
-  // PHASE B.4: DONE_PARTIAL + suggestedNextStep
-  let suggestedNextStep = null;
-  if (finalStatus === "DONE_PARTIAL" && stopReason === "QUERIES_EXHAUSTED") {
-    if (campaign.industrySectors && campaign.industrySectors.length > 0) {
-      errorMsg = `Filtrage strict secteur : ${created}/${target}. Suggestions : enlever un secteur / élargir zone / retirer mots-clés.`;
-      suggestedNextStep = "RELAX_FILTERS";
+    if (finalStatus === "DONE_PARTIAL" && kbTopupRejectedSectorCount > 0) {
+      const kbRejectedNote = `(${kbTopupRejectedSectorCount} KB rejetées : pas de secteur match)`;
+      errorMsg += ` ${kbRejectedNote}`;
+      if (!suggestedNextStep) suggestedNextStep = "RELAX_FILTERS";
     }
-  }
 
-  const toolUsage = {
-    queries: totalQueriesRun, skippedDuplicates: skippedDupe, filteredNonOrgCount,
-    queriesUsed: queryLog.slice(0, 10).map(q => q.query),
-    braveRequestsUsed, braveMaxRequests: BRAVE_MAX_REQUESTS,
-    braveRateLimitLimit: braveRLState.limit, braveRateLimitRemaining: braveRLState.remaining,
-    braveRateLimitReset: braveRLState.reset, brave429Count: braveRLState.count429,
-    stopReason, webStopReason, createdWeb, kbTopupAdded, kbTopupCandidates,
-    kbTopupSkippedDuplicate, kbTopupStoppedReason,
-    lastQueryIndex: queryIndex, allQueriesCount: allQueries.length,
-    queryLog: queryLog.slice(0, 30),
-  };
-
-  await base44.entities.Campaign.update(campaignId, {
-    status: finalStatus, progressPct: 100, countProspects: created, errorMessage: errorMsg, toolUsage,
-  });
-
-  await base44.entities.ActivityLog.create({
-    ownerUserId: user.email,
-    actionType: "RUN_PROSPECT_SEARCH",
-    entityType: "Campaign",
-    entityId: campaignId,
-    payload: {
-      created, createdWeb, kbTopupAdded, kbTopupCandidates, target,
-      coverage: `${Math.round(created / target * 100)}%`,
-      skippedDuplicates: skippedDupe, filteredNonOrgCount, queriesRun: totalQueriesRun,
+    const toolUsage = {
+      queries: totalQueriesRun, skippedDuplicates: skippedDupe, filteredNonOrgCount,
+      queriesUsed: queryLog.slice(0, 10).map(q => q.query),
       braveRequestsUsed, braveMaxRequests: BRAVE_MAX_REQUESTS,
-      brave429Count: braveRLState.count429, stopReason, webStopReason,
-      suggestedNextStep,
-    },
-    status: created > 0 ? "SUCCESS" : "ERROR",
-    errorMessage: errorMsg,
-  });
+      braveRateLimitLimit: braveRLState.limit, braveRateLimitRemaining: braveRLState.remaining,
+      braveRateLimitReset: braveRLState.reset, brave429Count: braveRLState.count429,
+      stopReason, webStopReason, createdWeb, kbTopupAdded, kbTopupCandidates,
+      kbTopupSkippedDuplicate, kbTopupStoppedReason,
+      kbTopupRejectedSectorCount, kbTopupRejectedMissingTagsCount,
+      lastQueryIndex: queryIndex, allQueriesCount: allQueries.length,
+      queryLog: queryLog.slice(0, 30),
+    };
 
-  return Response.json({ 
-    success: created > 0, created, target, coverage: Math.round(created / target * 100), 
-    skippedDuplicates: skippedDupe, filteredNonOrgCount, stopReason, suggestedNextStep 
-  });
+    await base44.entities.Campaign.update(campaignId, {
+      status: finalStatus, progressPct: 100, countProspects: created, errorMessage: errorMsg, toolUsage,
+    });
+
+    await base44.entities.ActivityLog.create({
+      ownerUserId: user.email,
+      actionType: "RUN_PROSPECT_SEARCH",
+      entityType: "Campaign",
+      entityId: campaignId,
+      payload: {
+        created, createdWeb, kbTopupAdded, kbTopupCandidates, target,
+        coverage: `${Math.round(created / target * 100)}%`,
+        skippedDuplicates: skippedDupe, filteredNonOrgCount, queriesRun: totalQueriesRun,
+        braveRequestsUsed, braveMaxRequests: BRAVE_MAX_REQUESTS,
+        brave429Count: braveRLState.count429, stopReason, webStopReason,
+        suggestedNextStep, kbTopupRejectedSectorCount, kbTopupRejectedMissingTagsCount,
+      },
+      status: created > 0 ? "SUCCESS" : "ERROR",
+      errorMessage: errorMsg,
+    });
+
+    return Response.json({ 
+      success: created > 0, created, target, coverage: Math.round(created / target * 100), 
+      skippedDuplicates: skippedDupe, filteredNonOrgCount, stopReason, suggestedNextStep 
+    });
+
+  } catch (error) {
+    // Emergency fallback: ensure campaign gets a final status
+    console.error("Critical error in runProspectSearch:", error.message);
+    
+    const emergencyFetch = await base44.entities.Prospect.filter({ campaignId }).catch(() => []);
+    const emergencyCreated = emergencyFetch.length;
+
+    finalStatus = emergencyCreated > 0 ? "DONE_PARTIAL" : "FAILED";
+    stopReason = "ERROR";
+    errorMsg = `Erreur système : ${error.message?.slice(0, 100) || "Erreur inconnue"}. ${emergencyCreated > 0 ? `${emergencyCreated} prospects créés avant l'erreur.` : ""}`;
+
+    try {
+      await base44.entities.Campaign.update(campaignId, {
+        status: finalStatus, progressPct: 100, countProspects: emergencyCreated, errorMessage: errorMsg, toolUsage: { stopReason, emergency: true },
+      });
+    } catch (_) {}
+
+    return Response.json({ 
+      success: false, error: errorMsg, status: finalStatus, created: emergencyCreated
+    }, { status: 500 });
+  }
 });
