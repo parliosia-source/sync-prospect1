@@ -153,6 +153,39 @@ export default function CampaignDetail() {
 
   if (!campaignId) return <div className="p-6 text-slate-500">ID campagne manquant</div>;
 
+  // Error state: campaign failed to load
+  if (campaign?.error && !isLoading) {
+    return (
+      <div className="p-6 max-w-6xl mx-auto">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-8 text-center">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
+          <h2 className="text-lg font-semibold text-red-700 mb-2">Campagne introuvable</h2>
+          <p className="text-sm text-red-600 mb-4">Impossible de charger la campagne. Elle a peut-être été supprimée.</p>
+          <Link to={createPageUrl("Campaigns")} className="inline-block">
+            <Button className="gap-2">
+              <ArrowLeft className="w-4 h-4" /> Retour aux campagnes
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="p-6 max-w-6xl mx-auto">
+        <div className="bg-white rounded-xl border p-8 text-center">
+          <div className="inline-block p-3 bg-blue-50 rounded-full mb-4">
+            <RefreshCw className="w-6 h-6 text-blue-500 animate-spin" />
+          </div>
+          <h2 className="text-lg font-semibold text-slate-700 mb-2">Chargement de la campagne…</h2>
+          <p className="text-sm text-slate-500">Récupération des données…</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <Link to={createPageUrl("Campaigns")} className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 mb-4">
