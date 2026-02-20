@@ -161,13 +161,13 @@ export default function MessageComposer({ message: initialMessage, onUpdated }) 
           onClick={() => setActiveTab("GENERATED")}
           className={`flex-1 px-4 py-2 text-xs font-medium transition-colors ${activeTab === "GENERATED" ? "border-b-2 border-blue-500 text-blue-700 bg-blue-50" : "text-slate-500 hover:bg-slate-50"}`}
         >
-          Version générée
+          Brouillon IA
         </button>
         <button
           onClick={() => setActiveTab("EDITED")}
           className={`flex-1 px-4 py-2 text-xs font-medium transition-colors ${activeTab === "EDITED" ? "border-b-2 border-purple-500 text-purple-700 bg-purple-50" : "text-slate-500 hover:bg-slate-50"}`}
         >
-          Version personnalisée {hasEdited && "✏️"}
+          Version finale {hasEdited && "✏️"}
         </button>
       </div>
 
