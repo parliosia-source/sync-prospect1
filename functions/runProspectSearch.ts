@@ -90,7 +90,7 @@ const BLOCKED_DOMAINS = new Set([
 
 const BLOCKED_URL_PATHS = /\/blog\/|\/news\/|\/press\/|\/article\/|\/articles\/|\/actualite\/|\/actualites\/|\/magazine\/|\/careers\/|\/carrieres\/|\/jobs\/|\/emplois\/|\/offres-emploi\/|\/salle-de-presse\/|\/communique\/|\/communiques\/|\/medias\/|\/presse\/|\/evenement\/|\/evenements\/|\/events\/|\/event\/|\/agenda\/|\/programme\/|\/inscription\/|\/register\/|\/actualite|\/nouvelles\/|\.pdf$/i;
 
-// PHASE B — Anti-bruit pré-LLM: types à rejeter dès la réception
+// ── Anti-bruit pré-LLM
 const ANTI_BRUIT = {
   article: /\b(article|blog|news|press release|communiqué|actualit[eé]|magazine|news|guide complet|comment |pourquoi |top \d+|liste de|idées de|trending|répertoire|annuaire|directory|listing|database)\b/i,
   calendar: /\b(calendar|agenda|événement|event|programme|program|inscription|register|archive|événements|archive)\b/i,
@@ -101,52 +101,67 @@ const ANTI_BRUIT = {
 };
 
 function shouldRejectByNoise(url, title, snippet) {
-  if (BLOCKED_DOMAINS.has(getRegistrableDomain(new URL(url, "https://example.com").hostname))) return "blocked";
-  if (BLOCKED_URL_PATHS.test(url)) return "blocked_path";
-  const combined = `${title} ${snippet}`.toLowerCase();
-  for (const [key, regex] of Object.entries(ANTI_BRUIT)) {
-    if (regex.test(combined)) return key;
-  }
-  return null;
+  const fullText = `${url} ${title} ${snippet}`.toLowerCase();
+  return Object.values(ANTI_BRUIT).some(regex => regex.test(fullText));
 }
 
-// ── Sector list (SYNC Prospect industry sectors) ──────────────────────────────────
-const ALL_SECTORS = new Set([
-  "Finance & Assurance", "Santé & Pharma", "Technologie", "Gouvernement & Public",
-  "Éducation & Formation", "Associations & OBNL", "Immobilier", "Droit & Comptabilité",
-  "Industrie & Manufacture", "Commerce de détail", "Transport & Logistique",
-]);
+// ── Normalization & Sector matching ─────────────────────────────────────────────
+const SECTOR_KEYWORDS = {
+  "Technologie": ["tech", "software", "cloud", "digital", "cybersécurité", "ai", "intelligence", "data", "web", "app", "informatique"],
+  "Finance & Assurance": ["assurance", "finance", "banque", "loan", "investment", "wealth", "insurance", "fintech", "crypto", "immobilier"],
+  "Santé & Pharma": ["santé", "health", "pharma", "medical", "pharmacy", "clinic", "hospital", "thérapie", "médecin"],
+  "Gouvernement & Public": ["gouvernement", "municipality", "government", "admin", "public", "state", "fédéral"],
+  "Éducation & Formation": ["école", "université", "formation", "training", "education", "learning", "académie", "collège"],
+  "Associations & OBNL": ["association", "obnl", "non-profit", "charity", "organisme", "fondation"],
+  "Immobilier": ["immobilier", "réaltor", "developer", "property", "real estate", "construction", "real estate"],
+  "Droit & Comptabilité": ["cabinet", "attorney", "lawyer", "comptable", "accounting", "law", "notaire"],
+  "Industrie & Manufacture": ["manufacture", "factory", "industrial", "usine", "production", "équipement"],
+  "Commerce de détail": ["retail", "magasin", "commerce", "boutique", "store", "distribution"],
+  "Transport & Logistique": ["transport", "logistique", "shipping", "freight", "courier", "livraison", "distribution"],
+};
 
-async function normalizeResult(r, requiredSectors = []) {
-  const url = r.url || r.link || "";
-  const hostname = new URL(url, "https://example.com").hostname || "";
-  const domain = getRegistrableDomain(hostname).toLowerCase();
-  const title = r.title || r.description || "";
-  const snippet = r.snippet || r.description || "";
-  const combined = `${title} ${snippet}`.toLowerCase();
+async function normalizeResult(r, requiredSectors) {
+  try {
+    const url = r.url || "";
+    const title = r.title || "";
+    const snippet = r.snippet || "";
 
-  // Basic org name extraction
-  const titleMatch = title.match(/^([A-ZÀ-ÿ][a-zà-ÿ\s&\-'éèêëïîôûüœæ]{2,100}?)\s*[-–|‹›«»]/);
-  const companyName = titleMatch ? titleMatch[1].trim() : domain.split(".")[0].toUpperCase();
-  const website = url;
+    if (BLOCKED_URL_PATHS.test(url)) return { isValid: false };
+    const domain = getRegistrableDomain(new URL(url).hostname);
+    if (BLOCKED_DOMAINS.has(domain)) return { isValid: false };
 
-  // Sector matching
-  const matchedSectors = [];
-  for (const sector of requiredSectors) {
-    const sectorLower = sector.toLowerCase();
-    if (combined.includes(sectorLower)) matchedSectors.push(sector);
+    const fullText = `${title} ${snippet}`.toLowerCase();
+    let sectorMatch = false;
+    let matchedSectors = [];
+
+    if (requiredSectors.length > 0) {
+      for (const sector of requiredSectors) {
+        const keywords = SECTOR_KEYWORDS[sector] || [];
+        if (keywords.some(kw => fullText.includes(kw))) {
+          sectorMatch = true;
+          matchedSectors.push(sector);
+        }
+      }
+    } else {
+      sectorMatch = true;
+    }
+
+    const nameMatch = title.match(/^([A-ZÀ-ÿ][a-zà-ÿ\s\-'\.&()]{2,60}?)(?:\s*[-–|]|$)/);
+    const companyName = nameMatch ? nameMatch[1].trim() : (title.split("|")[0] || title).slice(0, 100).trim();
+
+    return {
+      isValid: true,
+      sectorMatch,
+      companyName,
+      website: url,
+      domain,
+      industry: matchedSectors[0] || null,
+      matchedSectors,
+      locationText: null,
+    };
+  } catch (_) {
+    return { isValid: false };
   }
-
-  const locationText = combined.match(/\b(montréal|quebec|ottawa|toronto|vancouver|calgary|winnipeg|halifax)\b/i)?.[0] || null;
-  const industry = matchedSectors.length > 0 ? matchedSectors[0] : null;
-
-  return {
-    domain, companyName, website, industry, locationText,
-    matchedSectors,
-    isValid: !!domain && !!companyName,
-    resultType: "ORG_WE_WANT",
-    sectorMatch: matchedSectors.length > 0 || requiredSectors.length === 0,
-  };
 }
 
 // ── Query builders ──────────────────────────────────────────────────────────────
@@ -161,44 +176,30 @@ function buildQueryVariants(campaign, loc) {
 
   const queries = [];
 
-  // ─────────────────────────────────────────────────────────────────
-  // A — DIRECT COMPANIES/ORGS (100% business-first)
-  // ─────────────────────────────────────────────────────────────────
+  // A — DIRECT COMPANIES/ORGS
   const companyTermsFR = ["entreprises", "sociétés", "compagnies", "organisations", "cabinet", "firmes", "manufacturier"];
   const companyTermsEN = ["companies", "firms", "manufacturers", "organizations"];
 
   for (const l of locAll) {
-    // FR variants
     for (const term of companyTermsFR) {
       queries.push(`${term} ${sectorsFR} ${l} ${kws} ${EXCL}`);
-      if (sectors.length === 1) {
-        queries.push(`${term} ${sectors[0]} ${l} ${EXCL}`);
-      }
+      if (sectors.length === 1) queries.push(`${term} ${sectors[0]} ${l} ${EXCL}`);
     }
-    // EN variants
     for (const term of companyTermsEN) {
       queries.push(`${term} ${sectorsFR} ${l} ${kws} ${EXCL}`);
-      if (sectors.length === 1) {
-        queries.push(`${term} ${sectors[0]} ${l} ${EXCL}`);
-      }
+      if (sectors.length === 1) queries.push(`${term} ${sectors[0]} ${l} ${EXCL}`);
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // B — INDUSTRY CLUSTERS / ECOSYSTEMS
-  // ─────────────────────────────────────────────────────────────────
+  // B — INDUSTRY CLUSTERS
   for (const l of locAll) {
     queries.push(`grappe ${sectorsFR} ${l} ${EXCL}`);
     queries.push(`ecosystem ${sectorsFR} ${l} ${EXCL}`);
     queries.push(`cluster ${sectorsFR} ${l} ${EXCL}`);
-    if (sectors.length === 1) {
-      queries.push(`${sectors[0]} entreprises ${l} ${EXCL}`);
-    }
+    if (sectors.length === 1) queries.push(`${sectors[0]} entreprises ${l} ${EXCL}`);
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // C — ASSOCIATIONS / MEMBERS
-  // ─────────────────────────────────────────────────────────────────
+  // C — ASSOCIATIONS
   for (const l of locAll) {
     queries.push(`association ${sectorsFR} ${l} membres ${EXCL}`);
     queries.push(`${sectorsFR} association ${l} members ${EXCL}`);
@@ -230,226 +231,218 @@ Deno.serve(async (req) => {
   }
 
   const START_TIME = Date.now();
-  const MAX_DURATION_MS = 90 * 1000; // 90 sec (global time cap)
+  const MAX_DURATION_MS = 90 * 1000; // 90 sec global cap
   const APP_SETTINGS = (await base44.entities.AppSettings.filter({ settingsId: "global" }) || [{}])[0] || {};
-  const BRAVE_MAX_REQUESTS = 100; // Increased: 100 queries max
-  const BRAVE_MAX_PAGES_PER_QUERY = 6; // Increased: 6 pages per query (60 results/query)
-  const KB_TOPUP_ENABLED = APP_SETTINGS.enableKbTopUp !== false;
+  const KB_ENABLED = APP_SETTINGS.enableKbTopUp !== false;
 
   let prospectCount = 0;
   let progressPct = 0;
   let errorMessage = null;
-  let stopped = false;
+  let suggestedNextStep = null;
   let stopReason = null;
-  let webQueryCount = 0;
+  let webAccepted = 0;
+  let kbAccepted = 0;
   let braveRequestsUsed = 0;
-  let kbTopupAdded = 0;
-  let freshnessChecksDone = 0;
+  const existingDomains = new Set();
+  const locQuery = campaign.locationQuery || "Montréal, QC";
+  const requiredSectors = campaign.industrySectors || [];
+  const targetCount = campaign.targetCount || 50;
+
+  await base44.entities.Campaign.update(campaignId, {
+    status: "RUNNING",
+    progressPct: 5,
+    errorMessage: null,
+    lastRunAt: new Date().toISOString(),
+    toolUsage: { kbAccepted: 0, webAccepted: 0, braveRequestsUsed: 0, brave429Count: 0 },
+  });
 
   try {
-    // Phase A: Web Search
-    const existingDomains = new Set();
-    const locQuery = campaign.locationQuery || "Montréal, QC";
-    const requiredSectors = campaign.industrySectors || [];
-    const queriesRaw = buildQueryVariants(campaign, locQuery);
-    const targetCount = campaign.targetCount || 50;
-    let offsets = [0, 10];
+    // ═══════════════════════════════════════════════════════════════════
+    // PHASE 1: KB_FILL (Knowledge Base first)
+    // ═══════════════════════════════════════════════════════════════════
+    console.log(`[KB_FILL] START: target=${targetCount}, sectors=${requiredSectors.join(",")}, location=${locQuery}`);
 
-    await base44.entities.Campaign.update(campaignId, {
-      status: "RUNNING",
-      progressPct: 5,
-      errorMessage: null,
-      lastRunAt: new Date().toISOString(),
-      toolUsage: {
-        braveRequestsUsed: 0,
-        braveMaxRequests: BRAVE_MAX_REQUESTS,
-        brave429Count: 0,
-        freshnessChecksDone: 0,
-        webSearchQueryCount: 0,
-        kbTopupAdded: 0,
-      },
-    });
+    const kbAll = await base44.entities.KBEntity.list("-updated_date", 500);
+    console.log(`[KB_FILL] candidates_total=${kbAll.length}`);
 
-    // Execute web queries (100 max queries, 6 pages/query)
-    for (const query of queriesRaw) {
-      if (Date.now() - START_TIME > MAX_DURATION_MS) { stopped = true; stopReason = "TIME_BUDGET"; break; }
+    const locCity = locQuery.split(",")[0].toLowerCase().trim();
+    const kbCandidates = kbAll
+      .filter(e => {
+        if (existingDomains.has((e.domain || "").toLowerCase())) return false;
+        if (!e.domain || !e.website || !e.name) return false;
+        const locE = (e.hqLocation || "").toLowerCase();
+        if (locCity && !locE.includes(locCity) && !locE.includes("canada")) return false;
+        return true;
+      })
+      .sort(() => Math.random() - 0.5); // Shuffle
+
+    console.log(`[KB_FILL] candidates_filtered=${kbCandidates.length}`);
+
+    // Accept KB until target reached
+    for (const kb of kbCandidates) {
+      if (Date.now() - START_TIME > MAX_DURATION_MS) { stopReason = "TIME_BUDGET"; break; }
       if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
-      if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { stopReason = "BUDGET_GUARD"; break; }
 
-      // Dynamic pages per query: slower after 60s elapsed
-      const elapsed = Date.now() - START_TIME;
-      const maxPages = elapsed > 60000 ? 3 : BRAVE_MAX_PAGES_PER_QUERY;
+      const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
+      if (existingDomains.has(domNorm)) continue;
 
-      for (let pageIdx = 0; pageIdx < maxPages; pageIdx++) {
-        if (Date.now() - START_TIME > MAX_DURATION_MS) { stopped = true; stopReason = "TIME_BUDGET"; break; }
-        if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
-        if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { stopReason = "BUDGET_GUARD"; break; }
-
-        const offset = pageIdx * 10;
-        const { results, rateLimited } = await braveSearch(query, 10, offset);
-        braveRequestsUsed++;
-
-        if (rateLimited) { stopReason = "BRAVE_RATE_LIMITED"; break; }
-        if (results.length === 0) break; // No more results for this query
-
-        for (const r of results) {
-          if (prospectCount >= targetCount) break;
-          const noise = shouldRejectByNoise(r.url, r.title, r.snippet);
-          if (noise) continue;
-
-          const normalized = await normalizeResult(r, requiredSectors);
-          if (!normalized.isValid || !normalized.sectorMatch) continue;
-
-          const domNorm = normalized.domain.toLowerCase();
-          if (existingDomains.has(domNorm)) continue;
-
-          // Ignore subdomains of blocked patterns
-          if (/\b(events|blog|news|press)\../.test(domNorm)) continue;
-
-          // Save prospect
-          await base44.entities.Prospect.create({
-            campaignId,
-            ownerUserId: campaign.ownerUserId,
-            companyName: normalized.companyName,
-            website: normalized.website,
-            domain: domNorm,
-            industry: normalized.industry,
-            industrySectors: normalized.matchedSectors,
-            industryLabel: normalized.matchedSectors[0] || null,
-            location: normalized.locationText ? { city: normalized.locationText, country: "CA" } : { country: "CA" },
-            entityType: "COMPANY",
-            status: "NOUVEAU",
-            sourceOrigin: "WEB",
-            serpSnippet: r.snippet || "",
-            sourceUrl: r.url,
-          });
-
-          existingDomains.add(domNorm);
-          prospectCount++;
-          webQueryCount++;
+      // STRICT sector matching
+      let matchedSectors = [];
+      const kbSectors = Array.isArray(kb.industrySectors) ? kb.industrySectors : [];
+      
+      if (requiredSectors.length > 0) {
+        const match = kbSectors.some(s => requiredSectors.includes(s));
+        if (!match) {
+          console.log(`[KB_FILL] REJECT (sector): ${kb.name}, kbSectors=${kbSectors.join(",")}`);
+          continue;
         }
+        matchedSectors = kbSectors.filter(s => requiredSectors.includes(s));
+      } else {
+        matchedSectors = kbSectors.length > 0 ? kbSectors : [];
+      }
 
-        progressPct = Math.min(87, Math.round((prospectCount / targetCount) * 85) + 2);
+      // Create prospect
+      await base44.entities.Prospect.create({
+        campaignId,
+        ownerUserId: campaign.ownerUserId,
+        companyName: kb.name,
+        website: kb.website || `https://${kb.domain}`,
+        domain: domNorm,
+        industry: kb.entityType || null,
+        industrySectors: matchedSectors,
+        industryLabel: matchedSectors[0] || null,
+        location: kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
+        entityType: kb.entityType || "COMPANY",
+        status: "NOUVEAU",
+        sourceOrigin: "KB_TOPUP",
+        kbEntityId: kb.id,
+        serpSnippet: kb.notes || "",
+        sourceUrl: kb.source || "",
+      });
+
+      existingDomains.add(domNorm);
+      kbAccepted++;
+      prospectCount++;
+
+      if (kbAccepted % 5 === 0) {
+        progressPct = Math.min(45, Math.round((kbAccepted / Math.max(10, targetCount)) * 45));
+        console.log(`[KB_FILL] ACCEPT #${kbAccepted}: ${kb.name}, total=${prospectCount}/${targetCount}, progress=${progressPct}%`);
         await base44.entities.Campaign.update(campaignId, {
           progressPct,
           countProspects: prospectCount,
-          toolUsage: {
-            braveRequestsUsed,
-            braveMaxRequests: BRAVE_MAX_REQUESTS,
-            brave429Count: braveRLState.count429,
-            freshnessChecksDone,
-            webSearchQueryCount: webQueryCount,
-            kbTopupAdded,
-          },
+          toolUsage: { kbAccepted, webAccepted, braveRequestsUsed },
         });
       }
-
-      if (stopped || stopReason) break;
     }
 
-    // Phase B: KB Top-up
-    // Exécuter KB même si Brave budget atteint (SAUF si TIME_BUDGET strict)
-    const isTimeBudgetHit = stopped && stopReason === "TIME_BUDGET";
-    const canRunKB = KB_TOPUP_ENABLED && prospectCount < targetCount && !isTimeBudgetHit;
-    
-    if (canRunKB) {
-      progressPct = 90;
-      await base44.entities.Campaign.update(campaignId, { progressPct });
+    console.log(`[KB_FILL] END: accepted=${kbAccepted}, foundCount=${prospectCount}, stopReason=${stopReason}`);
 
-      console.log(`[KB_TOPUP] START: webFound=${prospectCount}, targetCount=${targetCount}, stopReason_web=${stopReason}`);
-      const kbAll = await base44.entities.KBEntity.list("-updated_date", 500);
-      console.log(`[KB_TOPUP] kbCandidates=${kbAll.length}`);
-      const locCity = locQuery.split(",")[0].toLowerCase();
-      const hasRequiredSectors = requiredSectors.length > 0;
+    // ═══════════════════════════════════════════════════════════════════
+    // PHASE 2: WEB_FILL (fallback if KB insufficient)
+    // ═══════════════════════════════════════════════════════════════════
+    const kbCoveragePercent = prospectCount > 0 ? Math.round((kbAccepted / targetCount) * 100) : 0;
+    const BRAVE_MAX_REQUESTS = kbCoveragePercent >= 70 ? 30 : 100;
+    const needsWebFill = prospectCount < targetCount && !stopReason;
 
-      const candidates = kbAll.filter(e => {
-        if (existingDomains.has((e.domain || "").toLowerCase())) return false;
-        if (!e.domain || !e.website) return false;
-        if (locCity && e.hqLocation) {
-          const locE = e.hqLocation.toLowerCase();
-          if (!locE.includes("canada") && !locE.includes(locCity)) return false;
-        }
-        return true;
-      });
+    if (needsWebFill) {
+      console.log(`[WEB_FILL] START: kbCoverage=${kbCoveragePercent}%, maxBraveRequests=${BRAVE_MAX_REQUESTS}, remaining=${targetCount - prospectCount}`);
 
-      for (const kb of candidates) {
-        if (Date.now() - START_TIME > MAX_DURATION_MS) { stopped = true; stopReason = "TIME_BUDGET"; break; }
-        if (kbTopupAdded >= (targetCount - prospectCount)) { stopReason = "TARGET_REACHED"; break; }
+      const queriesRaw = buildQueryVariants(campaign, locQuery);
+      const BRAVE_MAX_PAGES_PER_QUERY = 6;
 
-        const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
-        if (existingDomains.has(domNorm)) continue;
+      for (const query of queriesRaw) {
+        if (Date.now() - START_TIME > MAX_DURATION_MS) { stopReason = "TIME_BUDGET"; break; }
+        if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
+        if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { stopReason = "BUDGET_GUARD"; break; }
 
-        // ============================================
-        // STRICT SECTOR MATCHING using industrySectors
-        // ============================================
-        let matchedSectors = [];
-        const kbSectors = Array.isArray(kb.industrySectors) ? kb.industrySectors : [];
-        const required = campaign.industrySectors || [];
+        const elapsed = Date.now() - START_TIME;
+        const maxPages = elapsed > 60000 ? 3 : BRAVE_MAX_PAGES_PER_QUERY;
 
-        if (required.length > 0) {
-          const match = kbSectors.some(s => required.includes(s));
-          if (!match) {
-            continue; // REJECT: no match
+        for (let pageIdx = 0; pageIdx < maxPages; pageIdx++) {
+          if (Date.now() - START_TIME > MAX_DURATION_MS) { stopReason = "TIME_BUDGET"; break; }
+          if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
+          if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { stopReason = "BUDGET_GUARD"; break; }
+
+          const offset = pageIdx * 10;
+          const { results, rateLimited } = await braveSearch(query, 10, offset);
+          braveRequestsUsed++;
+
+          if (rateLimited) { stopReason = "BRAVE_RATE_LIMITED"; break; }
+          if (results.length === 0) break;
+
+          for (const r of results) {
+            if (prospectCount >= targetCount) break;
+            const noise = shouldRejectByNoise(r.url, r.title, r.snippet);
+            if (noise) continue;
+
+            const normalized = await normalizeResult(r, requiredSectors);
+            if (!normalized.isValid || !normalized.sectorMatch) continue;
+
+            const domNorm = normalized.domain.toLowerCase();
+            if (existingDomains.has(domNorm)) continue;
+            if (/\b(events|blog|news|press)\../.test(domNorm)) continue;
+
+            // Create prospect
+            await base44.entities.Prospect.create({
+              campaignId,
+              ownerUserId: campaign.ownerUserId,
+              companyName: normalized.companyName,
+              website: normalized.website,
+              domain: domNorm,
+              industry: normalized.industry,
+              industrySectors: normalized.matchedSectors,
+              industryLabel: normalized.matchedSectors[0] || null,
+              location: normalized.locationText ? { city: normalized.locationText, country: "CA" } : { country: "CA" },
+              entityType: "COMPANY",
+              status: "NOUVEAU",
+              sourceOrigin: "WEB",
+              serpSnippet: r.snippet || "",
+              sourceUrl: r.url,
+            });
+
+            existingDomains.add(domNorm);
+            webAccepted++;
+            prospectCount++;
           }
-          matchedSectors = kbSectors.filter(s => required.includes(s));
-        } else {
-          matchedSectors = kbSectors.length > 0 ? kbSectors : [];
-        }
-        // ============================================
 
-        await base44.entities.Prospect.create({
-          campaignId,
-          ownerUserId: campaign.ownerUserId,
-          companyName: kb.name,
-          website: kb.website || `https://${kb.domain}`,
-          domain: domNorm,
-          industry: kb.entityType || null,
-          industrySectors: matchedSectors,
-          industryLabel: matchedSectors[0] || null,
-          location: kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
-          entityType: kb.entityType || "COMPANY",
-          status: "NOUVEAU",
-          sourceOrigin: "KB_TOPUP",
-          kbEntityId: kb.id,
-          serpSnippet: kb.notes || "",
-          sourceUrl: kb.source || "",
-        });
-
-        existingDomains.add(domNorm);
-        kbTopupAdded++;
-        prospectCount++;
-
-        if (kbTopupAdded % 5 === 0) {
-          progressPct = Math.min(98, 90 + Math.round((kbTopupAdded / Math.max(10, candidates.length)) * 8));
+          progressPct = Math.min(85, 45 + Math.round((webAccepted / Math.max(10, targetCount - kbAccepted)) * 40));
           await base44.entities.Campaign.update(campaignId, {
             progressPct,
             countProspects: prospectCount,
-            toolUsage: {
-              braveRequestsUsed,
-              braveMaxRequests: BRAVE_MAX_REQUESTS,
-              brave429Count: braveRLState.count429,
-              freshnessChecksDone,
-              webSearchQueryCount: webQueryCount,
-              kbTopupAdded,
-            },
+            toolUsage: { kbAccepted, webAccepted, braveRequestsUsed },
           });
         }
+        if (stopReason) break;
       }
+
+      console.log(`[WEB_FILL] END: accepted=${webAccepted}, total=${prospectCount}, stopReason=${stopReason}`);
     } else {
-      console.log(`[KB_TOPUP] SKIPPED: canRunKB=${canRunKB}, isTimeBudgetHit=${isTimeBudgetHit}, stopped=${stopped}`);
+      console.log(`[WEB_FILL] SKIPPED: needsWebFill=${needsWebFill}, stopReason=${stopReason}`);
     }
 
-    // Final status
+    // ═══════════════════════════════════════════════════════════════════
+    // FINALIZE STATUS
+    // ═══════════════════════════════════════════════════════════════════
     const finalProspects = await base44.entities.Prospect.filter({ campaignId });
-    const finalStatus = (prospectCount >= targetCount) ? "COMPLETED" : "DONE_PARTIAL";
-    
-    console.log(`[FINAL] webFound=${prospectCount - kbTopupAdded}, kbAccepted=${kbTopupAdded}, finalTotal=${prospectCount}, target=${targetCount}, stopReason=${stopReason}, finalStatus=${finalStatus}`);
+    let finalStatus;
 
-    errorMessage = stopReason === "BUDGET_GUARD"
-      ? `Budget Brave atteint (${braveRequestsUsed}/${BRAVE_MAX_REQUESTS}). ${prospectCount} prospects trouvés.`
-      : stopReason === "QUERIES_EXHAUSTED"
-      ? `Requêtes épuisées. ${prospectCount} prospects trouvés.`
-      : null;
+    if (prospectCount >= targetCount) {
+      finalStatus = "DONE";
+      console.log(`[FINAL] SUCCESS: targetReached`);
+    } else if (prospectCount > 0) {
+      finalStatus = "DONE_PARTIAL";
+      if (requiredSectors.length > 0) {
+        suggestedNextStep = "RELAX_FILTERS";
+      }
+      errorMessage = "Résultats insuffisants. Relâchez les filtres ou élargissez la géographie.";
+      console.log(`[FINAL] PARTIAL: found=${prospectCount}, target=${targetCount}, suggestedNextStep=${suggestedNextStep}`);
+    } else {
+      finalStatus = "FAILED";
+      errorMessage = "Aucun prospect trouvé. Vérifiez vos critères de recherche.";
+      console.log(`[FINAL] FAILED: found=0`);
+    }
+
+    console.log(`[FINAL] kbAccepted=${kbAccepted}, webAccepted=${webAccepted}, total=${prospectCount}/${targetCount}, status=${finalStatus}`);
 
     await base44.entities.Campaign.update(campaignId, {
       status: finalStatus,
@@ -460,49 +453,52 @@ Deno.serve(async (req) => {
       countRejected: finalProspects.filter(p => p.status === "REJETÉ").length,
       errorMessage,
       toolUsage: {
+        kbAccepted,
+        webAccepted,
         braveRequestsUsed,
-        braveMaxRequests: BRAVE_MAX_REQUESTS,
         brave429Count: braveRLState.count429,
-        freshnessChecksDone,
-        webSearchQueryCount: webQueryCount,
-        kbTopupAdded,
-        stopReason: stopReason || "COMPLETED",
+        stopReason,
+        suggestedNextStep,
       },
     });
 
     await base44.entities.ActivityLog.create({
-      ownerUserId: user.email,
+      ownerUserId: campaign.ownerUserId,
       actionType: "RUN_PROSPECT_SEARCH",
       entityType: "Campaign",
       entityId: campaignId,
       payload: {
-        prospectCount,
-        webQueryCount,
-        braveRequestsUsed,
-        kbTopupAdded,
-        durationMs: Date.now() - START_TIME,
-        stopReason: stopReason || "COMPLETED",
+        kbAccepted,
+        webAccepted,
+        total: prospectCount,
+        target: targetCount,
+        stopReason,
+        finalStatus,
       },
-      status: "SUCCESS",
+      status: finalStatus === "FAILED" ? "ERROR" : "SUCCESS",
+      errorMessage: finalStatus === "FAILED" ? errorMessage : null,
     });
 
     return Response.json({
       success: true,
+      campaignId,
       prospectCount,
-      webQueryCount,
-      braveRequestsUsed,
-      kbTopupAdded,
+      kbAccepted,
+      webAccepted,
       status: finalStatus,
-      stopReason: stopReason || "COMPLETED",
+      stopReason,
     });
+
   } catch (error) {
-    const msg = error?.message || "Unknown error";
-    console.error("Search error:", msg);
+    console.error("[SEARCH_ERROR]", error.message);
+    const errorMsg = error.message || "Erreur lors de la recherche";
+    
     await base44.entities.Campaign.update(campaignId, {
       status: "FAILED",
-      errorMessage: msg.slice(0, 500),
-      progressPct,
+      errorMessage: errorMsg,
+      progressPct: 0,
     });
-    return Response.json({ error: msg }, { status: 500 });
+
+    return Response.json({ error: errorMsg, status: "FAILED" }, { status: 500 });
   }
 });
