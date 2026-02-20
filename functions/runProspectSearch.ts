@@ -378,7 +378,7 @@ Deno.serve(async (req) => {
       const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
       if (existingDomains.has(domNorm)) continue;
 
-      // B4) KB sector strict: infer if empty
+      // B) STRICT sector: infer if empty
       const rawKbSectors = Array.isArray(kb.industrySectors) ? kb.industrySectors : [];
       const kbSectors = rawKbSectors.length > 0 ? rawKbSectors : inferSectorsFromKb(kb);
 
@@ -390,6 +390,14 @@ Deno.serve(async (req) => {
           continue;
         }
         matchedSectors = kbSectors.filter(s => requiredSectors.includes(s));
+        
+        // B) STRICT entityType filter (reject non-pertinent org types)
+        const primarySector = matchedSectors[0];
+        const entityTypeAllowed = primarySector && isEntityTypeAllowed(kb.entityType || "", primarySector, kb.name);
+        if (!entityTypeAllowed) {
+          console.log(`[KB_FILL] REJECT entityType: ${kb.name} (${kb.entityType}) for sector ${primarySector}`);
+          continue;
+        }
       } else {
         matchedSectors = kbSectors;
       }
