@@ -252,9 +252,13 @@ async function normalizeResult(r, requiredSectors) {
     const title = r.title || "";
     const snippet = r.snippet || "";
 
+    // 1) Hard filters: domain patterns + title patterns (pre-LLM)
     if (BLOCKED_URL_PATHS.test(url)) return { isValid: false };
+    if (HARD_EXCLUDE_TITLE.test(title)) return { isValid: false };
+    
     const domain = getRegistrableDomain(new URL(url).hostname);
     if (BLOCKED_DOMAINS.has(domain)) return { isValid: false };
+    if (HARD_EXCLUDE_DOMAINS.test(domain)) return { isValid: false };
 
     // B) STRICT: reject if domain matches public institution patterns
     const domainLower = domain.toLowerCase();
