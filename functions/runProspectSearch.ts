@@ -425,6 +425,12 @@ Deno.serve(async (req) => {
           website,
           domain,
           industry:    normalized.industry,
+          industrySectors: Array.isArray(normalized.matchedSectors) && normalized.matchedSectors.length > 0
+            ? normalized.matchedSectors
+            : (campaign.industrySectors || []),
+          industryLabel: Array.isArray(normalized.matchedSectors) && normalized.matchedSectors.length > 0
+            ? normalized.matchedSectors[0]
+            : ((campaign.industrySectors && campaign.industrySectors.length > 0) ? campaign.industrySectors[0] : null),
           location:    normalized.locationText ? { city: normalized.locationText, country: "CA" } : { country: "CA" },
           entityType:  "COMPANY",
           status:      "NOUVEAU",
