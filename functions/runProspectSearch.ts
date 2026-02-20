@@ -230,9 +230,10 @@ Deno.serve(async (req) => {
   }
 
   const START_TIME = Date.now();
-  const MAX_DURATION_MS = 25 * 60 * 1000; // 25 min
+  const MAX_DURATION_MS = 90 * 1000; // 90 sec (global time cap)
   const APP_SETTINGS = (await base44.entities.AppSettings.filter({ settingsId: "global" }) || [{}])[0] || {};
-  const BRAVE_MAX_REQUESTS = APP_SETTINGS.braveMaxRequestsPerCampaign || 250;
+  const BRAVE_MAX_REQUESTS = 100; // Increased: 100 queries max
+  const BRAVE_MAX_PAGES_PER_QUERY = 6; // Increased: 6 pages per query (60 results/query)
   const KB_TOPUP_ENABLED = APP_SETTINGS.enableKbTopUp !== false;
 
   let prospectCount = 0;
