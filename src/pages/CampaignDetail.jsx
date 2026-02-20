@@ -274,12 +274,12 @@ export default function CampaignDetail() {
             </div>
           )}
 
-          {/* Error */}
+          {/* Error — never show rate limit / Brave / 429 */}
           {campaign.status === "FAILED" && campaign.errorMessage && (
             <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-start gap-2">
               <span className="font-medium">Erreur :</span>
               <div>
-                {campaign.errorMessage}
+                {campaign.errorMessage.replace(/rate limit|Rate limit|429|brave|Brave/gi, "budget de recherche")}
                 <div className="mt-1.5">
                   <button onClick={handleReLaunch} className="text-xs text-red-600 underline hover:text-red-900">Relancer la recherche</button>
                 </div>
