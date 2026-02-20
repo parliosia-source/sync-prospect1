@@ -620,8 +620,8 @@ Deno.serve(async (req) => {
     }
 
     // ════════════════════════════════════════════════════════════════════════════
-    // C) FINALIZE: FAILED uniquement si prospectCount == 0
-    // A) NEVER expose rate limit in errorMessage
+    // FINALIZE: DONE_PARTIAL if strict scoring blocked prospects
+    // Never expose rate limit/429 in errorMessage
     // ════════════════════════════════════════════════════════════════════════════
     const finalProspects = await base44.entities.Prospect.filter({ campaignId });
     let finalStatus;
@@ -631,15 +631,10 @@ Deno.serve(async (req) => {
       errorMessage = null;
       console.log(`[FINAL] SUCCESS`);
     } else if (prospectCount > 0) {
-      // DONE_PARTIAL even if rate limit / time budget / budget guard
+      // DONE_PARTIAL: not enough due to strict scoring or resource limits
       finalStatus = "DONE_PARTIAL";
-      if (requiredSectors.length > 0) {
-        suggestedNextStep = "RELAX_FILTERS";
-        errorMessage = "Résultats insuffisants. Relâchez les filtres ou élargissez la géographie.";
-      } else {
-        // Don't expose rate limit; just generic message
-        errorMessage = null;
-      }
+      suggestedNextStep = "RELAX_FILTERS";
+      errorMessage = "Résultats insuffisants. Essayez de relâcher les filtres secteur, élargir la géographie ou ajouter des mots-clés.";
       console.log(`[FINAL] PARTIAL: found=${prospectCount}, target=${targetCount}, stopReason=${stopReason}`);
     } else {
       // FAILED only if 0 results total
