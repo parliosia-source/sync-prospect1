@@ -88,7 +88,33 @@ const BLOCKED_DOMAINS = new Set([
   "salesforce.com","mailchimp.com","eventmanager.com",
 ]);
 
-const BLOCKED_URL_PATHS = /\/blog\/|\/news\/|\/press\/|\/article\/|\/articles\/|\/actualite\/|\/actualites\/|\/magazine\/|\/careers\/|\/carrieres\/|\/jobs\/|\/emplois\/|\/offres-emploi\/|\/salle-de-presse\/|\/communique\/|\/communiques\/|\/medias\/|\/presse\/|\/evenement\/|\/evenements\/|\/events\/|\/event\/|\/agenda\/|\/programme\/|\/inscription\/|\/register\/|\/actualite|\/nouvelles\//i;
+const BLOCKED_URL_PATHS = /\/blog\/|\/news\/|\/press\/|\/article\/|\/articles\/|\/actualite\/|\/actualites\/|\/magazine\/|\/careers\/|\/carrieres\/|\/jobs\/|\/emplois\/|\/offres-emploi\/|\/salle-de-presse\/|\/communique\/|\/communiques\/|\/medias\/|\/presse\/|\/evenement\/|\/evenements\/|\/events\/|\/event\/|\/agenda\/|\/programme\/|\/inscription\/|\/register\/|\/actualite|\/nouvelles\/|\.pdf$/i;
+
+// PHASE B — Anti-bruit pré-LLM: types à rejeter dès la réception
+const ANTI_BRUIT = {
+  article: /\b(article|blog|news|press release|communiqué|actualit[eé]|magazine|news|guide complet|comment |pourquoi |top \d+|liste de|idées de|trending|répertoire|annuaire|directory|listing|database)\b/i,
+  calendar: /\b(calendar|agenda|événement|event|programme|program|inscription|register|archive|événements|archive)\b/i,
+  venue: /\b(centre de congrès|palais des congrès|meeting room|salle|venue|location|espace|réception|banquet|hôtel|hotel|resort|resort|airbnb|hotel|hospitality)\b/i,
+  agency: /\b(agence événementielle|event planner|organisateur|event management|event agency|party planner|wedding|mariage|planificateur|event organizer)\b/i,
+  directory: /\b(répertoire|annuaire|directory|listing|pages jaunes|yellow pages|fournisseur|supplier|catalog|catalogue)\b/i,
+  media: /\b(journal|newspaper|gazette|radio|tv|television|chaîne|channel|journal|presse|medias)\b/i,
+};
+
+// Filtre anti-bruit pour URLs/titres/snippets AVANT tout traitement
+function shouldRejectByNoise(url, title, snippet) {
+  const combined = (url + " " + title + " " + snippet).toLowerCase();
+  
+  // Vérifier chaque catégorie de bruit
+  for (const [key, regex] of Object.entries(ANTI_BRUIT)) {
+    if (regex.test(combined)) return key;
+  }
+  
+  // PDFs et archives
+  if (/\.pdf$/i.test(url)) return "pdf";
+  if (/archive|archived|passé|old/i.test(combined)) return "archive";
+  
+  return null;
+}
 
 const EXCLUDE_CONTENT_RE = /agence événementielle|event planner|organisateur professionnel|planificateur événement|bureau de congrès|répertoire fournisseurs|annuaire|directory|listing|database|crm\b|logiciel événement|software|saas|plateforme de gestion|template|thème wordpress|plugin|définition|procuration|règlements généraux|politique de gouvernance|guide complet|tout savoir sur|qu'est-ce qu'une/i;
 
