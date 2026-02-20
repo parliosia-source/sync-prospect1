@@ -479,10 +479,15 @@ Deno.serve(async (req) => {
           if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { stopReason = "BUDGET_GUARD"; break; }
 
           const offset = pageIdx * 20;
-          const { results, rateLimited } = await braveSearch(query, 20, offset); // B5) count=20
+          const { results, rateLimited } = await braveSearch(query, 20, offset);
           braveRequestsUsed++;
 
-          if (rateLimited) { stopReason = "BRAVE_RATE_LIMITED"; break; }
+          // A) Rate limit 429: stop Web loop, DON'T FAIL
+          if (rateLimited) {
+            console.log(`[WEB_FILL] RATE_LIMIT hit`);
+            stopReason = "BRAVE_RATE_LIMITED";
+            break;
+          }
           if (results.length === 0) break;
 
           for (const r of results) {
