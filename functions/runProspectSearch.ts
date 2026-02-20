@@ -177,28 +177,40 @@ function matchesSector(text, sectors) {
 // ── normalizeResult ────────────────────────────────────────────────────────────
 async function normalizeResult(r, campaignSectors) {
   const url = r.url || r.link;
-  if (!url) return null;
+  if (!url) return { isValid: false, resultType: "OTHER", reason: "No URL" };
 
   let parsedUrl;
   try { parsedUrl = new URL(url.startsWith("http") ? url : "https://" + url); }
-  catch (_) { return null; }
+  catch (_) { return { isValid: false, resultType: "OTHER", reason: "Invalid URL" }; }
 
   const rawHost = parsedUrl.hostname.replace(/^www\./, "");
   const registrableDomain = getRegistrableDomain(rawHost);
 
-  if (BLOCKED_DOMAINS.has(rawHost) || BLOCKED_DOMAINS.has(registrableDomain)) return null;
-  if (BLOCKED_URL_PATHS.test(url)) return null;
+  if (BLOCKED_DOMAINS.has(rawHost) || BLOCKED_DOMAINS.has(registrableDomain)) {
+    return { isValid: false, resultType: "OTHER", reason: "Domain blocked" };
+  }
+  if (BLOCKED_URL_PATHS.test(url)) {
+    return { isValid: false, resultType: "OTHER", reason: "URL path blocked" };
+  }
 
   const rawTitle   = r.title || "";
   const rawSnippet = r.snippet || r.description || "";
   const combined   = (rawTitle + " " + rawSnippet).toLowerCase();
 
-  if (EXCLUDE_CONTENT_RE.test(combined)) return null;
-  if (ARTICLE_TITLE_RE.test(rawTitle))   return null;
+  if (EXCLUDE_CONTENT_RE.test(combined)) {
+    return { isValid: false, resultType: "ARTICLE", reason: "Excluded content keywords" };
+  }
+  if (ARTICLE_TITLE_RE.test(rawTitle)) {
+    return { isValid: false, resultType: "ARTICLE", reason: "Article title pattern" };
+  }
 
   const hasOrgSignal   = ORG_SIGNAL_RE.test(rawTitle + " " + rawSnippet + " " + registrableDomain);
   const hasEventSignal = EVENT_SIGNAL_RE.test(combined);
-  if (!hasOrgSignal || !hasEventSignal) return null;
+  if (!hasOrgSignal || !hasEventSignal) {
+    const noOrg = !hasOrgSignal ? "no org signal" : "";
+    const noEvent = !hasEventSignal ? "no event signal" : "";
+    return { isValid: false, resultType: "OTHER", reason: `${noOrg} ${noEvent}`.trim() };
+  }
 
   const firstLabel = rawHost.split(".")[0];
   const isEventSubdomain = (rawHost !== registrableDomain) && EVENT_SUBDOMAIN_RE.test(firstLabel);
@@ -223,19 +235,24 @@ async function normalizeResult(r, campaignSectors) {
   }
 
   // Reject if we still can't determine a real org name
-  if (!companyName) return null;
+  if (!companyName) {
+    return { isValid: false, resultType: "OTHER", reason: "No company name extracted" };
+  }
 
+  // PHASE B: Check sector match if required
+  const sectorMatch = matchesSector(companyName + " " + rawSnippet + " " + rawTitle, campaignSectors);
+  
   return {
-    normalized: {
-      companyName,
-      website,
-      domain,
-      industry: null,
-      location: { city: "", region: "", country: "CA" },
-      entityType: "COMPANY",
-    },
+    isValid: true,
+    resultType: "ORG_WE_WANT",
+    sectorMatch,
+    matchedSectors: campaignSectors || [],
+    companyName,
+    website,
     domain,
-    sourceUrl,
+    industry: null,
+    locationText: null,
+    reason: "Valid org with event signals"
   };
 }
 
