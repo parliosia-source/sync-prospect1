@@ -562,11 +562,17 @@ Deno.serve(async (req) => {
 
           for (const r of results) {
             if (prospectCount >= targetCount) break;
+            
+            // 1) Pre-LLM hard filters first
+            const normalized = await normalizeResult(r, requiredSectors);
+            if (!normalized.isValid) continue;
+
+            // Strict scoring: only accept if score >= 2 for at least one sector
+            if (!normalized.sectorMatch) continue;
+            
+            // 2) Then general noise check
             const noise = shouldRejectByNoise(r.url, r.title, r.snippet);
             if (noise) continue;
-
-            const normalized = await normalizeResult(r, requiredSectors);
-            if (!normalized.isValid || !normalized.sectorMatch) continue;
 
             const domNorm = normalized.domain.toLowerCase();
             if (existingDomains.has(domNorm)) continue;
