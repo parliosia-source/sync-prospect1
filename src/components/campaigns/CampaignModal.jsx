@@ -52,7 +52,22 @@ export default function CampaignModal({ open, onClose, onSave }) {
     }
     const payload = { ...form, industrySectors: sectors };
     delete payload.customSector;
-    await onSave(payload, launch);
+    
+    // PHASE A: Create campaign + optimistic update if launching
+    const campaignResult = await onSave(payload, launch);
+    
+    if (launch && campaignResult?.campaignId) {
+      // Optimistic update: mark as RUNNING immediately for instant feedback
+      try {
+        await base44.entities.Campaign.update(campaignResult.campaignId, {
+          status: "RUNNING",
+          progressPct: 5,
+          errorMessage: null,
+          lastRunAt: new Date().toISOString(),
+        });
+      } catch (_) {}
+    }
+    
     setSaving(false);
     onClose();
     // Reset form
