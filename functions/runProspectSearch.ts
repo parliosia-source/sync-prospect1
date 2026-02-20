@@ -505,6 +505,8 @@ Deno.serve(async (req) => {
         website:      kb.website || `https://${kb.domain}`,
         domain:       domNorm,
         industry:     kb.entityType || null,
+        industrySectors: Array.isArray(kb.tags) && kb.tags.length > 0 ? kb.tags : [],
+        industryLabel: (Array.isArray(kb.tags) && kb.tags.length > 0 ? kb.tags[0] : (kb.entityType || null)),
         location:     kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
         entityType:   kb.entityType || "COMPANY",
         status:       "NOUVEAU",
