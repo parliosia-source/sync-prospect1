@@ -313,7 +313,7 @@ export default function CampaignDetail() {
               <div className="flex items-center justify-between text-xs text-blue-700 mb-1.5">
                 <span className="flex items-center gap-1.5 font-medium">
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  Recherche en cours (Web + KB)…
+                  Recherche en cours…
                 </span>
                 <span>{counts["Tous"]} / {campaign.targetCount} · {Math.min(campaign.progressPct || 0, 99)}%</span>
               </div>
