@@ -270,21 +270,27 @@ Deno.serve(async (req) => {
       },
     });
 
-    // Execute web queries
+    // Execute web queries (100 max queries, 6 pages/query)
     for (const query of queriesRaw) {
       if (Date.now() - START_TIME > MAX_DURATION_MS) { stopped = true; stopReason = "TIME_BUDGET"; break; }
       if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
       if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { stopReason = "BUDGET_GUARD"; break; }
 
-      for (const offset of offsets) {
+      // Dynamic pages per query: slower after 60s elapsed
+      const elapsed = Date.now() - START_TIME;
+      const maxPages = elapsed > 60000 ? 3 : BRAVE_MAX_PAGES_PER_QUERY;
+
+      for (let pageIdx = 0; pageIdx < maxPages; pageIdx++) {
         if (Date.now() - START_TIME > MAX_DURATION_MS) { stopped = true; stopReason = "TIME_BUDGET"; break; }
         if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
         if (braveRequestsUsed >= BRAVE_MAX_REQUESTS) { stopReason = "BUDGET_GUARD"; break; }
 
+        const offset = pageIdx * 10;
         const { results, rateLimited } = await braveSearch(query, 10, offset);
         braveRequestsUsed++;
 
         if (rateLimited) { stopReason = "BRAVE_RATE_LIMITED"; break; }
+        if (results.length === 0) break; // No more results for this query
 
         for (const r of results) {
           if (prospectCount >= targetCount) break;
@@ -296,6 +302,9 @@ Deno.serve(async (req) => {
 
           const domNorm = normalized.domain.toLowerCase();
           if (existingDomains.has(domNorm)) continue;
+
+          // Ignore subdomains of blocked patterns
+          if (/\b(events|blog|news|press)\../.test(domNorm)) continue;
 
           // Save prospect
           await base44.entities.Prospect.create({
