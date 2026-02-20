@@ -260,21 +260,12 @@ async function normalizeResult(r, requiredSectors) {
       }
     }
 
-    // Match sectors from fullText (title + snippet + url + domain)
+    // B) Match sectors via STRICT rules
     const fullText = `${title} ${snippet} ${url} ${domain}`.toLowerCase();
-    let sectorMatch = false;
     let matchedSectors = [];
 
     if (requiredSectors.length > 0) {
-      for (const sector of requiredSectors) {
-        const keywords = SECTOR_KEYWORDS[sector] || [];
-        if (keywords.some(kw => fullText.includes(kw))) {
-          sectorMatch = true;
-          matchedSectors.push(sector);
-        }
-      }
-    } else {
-      sectorMatch = true;
+      matchedSectors = matchSectorsStrict(fullText, requiredSectors);
     }
 
     const nameMatch = title.match(/^([A-ZÀ-ÿ][a-zà-ÿ\s\-'\.&()]{2,60}?)(?:\s*[-–|]|$)/);
@@ -282,7 +273,7 @@ async function normalizeResult(r, requiredSectors) {
 
     return {
       isValid: true,
-      sectorMatch,
+      sectorMatch: matchedSectors.length > 0,
       companyName,
       website: url,
       domain,
