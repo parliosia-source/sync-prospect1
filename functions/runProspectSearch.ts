@@ -393,25 +393,44 @@ Deno.serve(async (req) => {
 
       for (const r of results) {
         if (created >= target) break;
-        const normalized = await normalizeResult(r);
-        if (!normalized) { filteredNonOrgCount++; continue; }
+        
+        // PHASE B.1: Anti-bruit PRÉ-LLM — reject before any processing
+        const noiseType = shouldRejectByNoise(r.url || r.link || "", r.title || "", r.snippet || r.description || "");
+        if (noiseType) {
+          filteredNonOrgCount++;
+          continue;
+        }
+        
+        // PHASE B.2: normalizeResult with sector checking
+        const normalized = await normalizeResult(r, campaign.industrySectors);
+        
+        // PHASE B.3: Strict acceptance rule
+        const hasRequiredSectors = campaign.industrySectors && campaign.industrySectors.length > 0;
+        const isAccepted = normalized.isValid 
+          && normalized.resultType === "ORG_WE_WANT"
+          && (!hasRequiredSectors || normalized.sectorMatch);
+          
+        if (!isAccepted) { 
+          filteredNonOrgCount++; 
+          continue; 
+        }
 
-        const { domain, sourceUrl } = normalized;
+        const { domain, companyName, website } = normalized;
         if (existingDomains.has(domain) || kbDomains.has(domain)) { skippedDupe++; continue; }
 
         await base44.entities.Prospect.create({
           campaignId,
           ownerUserId: campaign.ownerUserId,
-          companyName: normalized.normalized.companyName,
-          website:     normalized.normalized.website,
+          companyName,
+          website,
           domain,
-          industry:    normalized.normalized.industry,
-          location:    normalized.normalized.location,
-          entityType:  normalized.normalized.entityType,
+          industry:    normalized.industry,
+          location:    normalized.locationText ? { city: normalized.locationText, country: "CA" } : { country: "CA" },
+          entityType:  "COMPANY",
           status:      "NOUVEAU",
           sourceOrigin: "WEB",
           serpSnippet: r?.snippet || r?.description || "",
-          sourceUrl:   sourceUrl || r?.url || r?.link || "",
+          sourceUrl:   r?.url || r?.link || "",
         });
 
         existingDomains.add(domain);
