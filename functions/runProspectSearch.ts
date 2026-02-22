@@ -601,28 +601,23 @@ Deno.serve(async (req) => {
       const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
       if (existingDomains.has(domNorm)) continue;
 
-      // B) STRICT sector: infer if empty
-      const rawKbSectors = Array.isArray(kb.industrySectors) ? kb.industrySectors : [];
-      const kbSectors = rawKbSectors.length > 0 ? rawKbSectors : inferSectorsFromKb(kb);
+      // Sector matching avec synonymes
+      const { match: sectorMatch, matchedSectors: foundSectors } = kbMatchesSectors(kb);
+      let matchedSectors = foundSectors;
 
-      let matchedSectors = [];
-      if (requiredSectors.length > 0) {
-        const match = kbSectors.some(s => requiredSectors.includes(s));
-        if (!match) {
-          console.log(`[KB_FILL] REJECT sector: ${kb.name}`);
-          continue;
-        }
-        matchedSectors = kbSectors.filter(s => requiredSectors.includes(s));
-        
-        // B) STRICT entityType filter (reject non-pertinent org types)
+      if (requiredSectors.length > 0 && !sectorMatch) {
+        console.log(`[KB_FILL] REJECT sector: ${kb.name}`);
+        continue;
+      }
+      
+      if (requiredSectors.length > 0 && matchedSectors.length > 0) {
+        // Soft entityType filter — ne rejette que les cas vraiment hors scope
         const primarySector = matchedSectors[0];
-        const entityTypeAllowed = primarySector && isEntityTypeAllowed(kb.entityType || "", primarySector, kb.name);
+        const entityTypeAllowed = isEntityTypeAllowed(kb.entityType || "", primarySector, kb.name);
         if (!entityTypeAllowed) {
           console.log(`[KB_FILL] REJECT entityType: ${kb.name} (${kb.entityType}) for sector ${primarySector}`);
           continue;
         }
-      } else {
-        matchedSectors = kbSectors;
       }
 
       // Create prospect — use matched sectors, never entityType as industry
