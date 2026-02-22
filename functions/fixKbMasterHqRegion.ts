@@ -101,7 +101,7 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const { dryRun = true, offset = 0, batchLimit = 150 } = body;
 
-  console.log(`[FIX_REGION] START dryRun=${dryRun} seedBatchId=${seedBatchId}`);
+  console.log(`[FIX_REGION] START dryRun=${dryRun} offset=${offset} batchLimit=${batchLimit}`);
 
   // Load all KB entries (not just the batch — we check all with invalid hqRegion)
   let all = [];
