@@ -328,6 +328,139 @@ export default function Admin() {
             )}
           </div>
 
+          {/* Debug Search */}
+          <div className="bg-white rounded-xl border p-5">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="font-semibold text-slate-800">Test Debug Search (KBEntityV2)</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Simule le filtrage KB sans lancer de campagne. Affiche top 20 acceptés / rejetés.</p>
+              </div>
+              <Button onClick={handleDebugSearch} disabled={debugLoading} size="sm" className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-xs">
+                <RefreshCw className={`w-3.5 h-3.5 ${debugLoading ? "animate-spin" : ""}`} />
+                Tester
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Location</label>
+                <input
+                  className="w-full border rounded-lg px-3 py-1.5 text-sm"
+                  value={debugSearch.locationQuery}
+                  onChange={e => setDebugSearch(d => ({ ...d, locationQuery: e.target.value }))}
+                  placeholder="ex: Montréal, Laval"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">Secteurs (virgule)</label>
+                <input
+                  className="w-full border rounded-lg px-3 py-1.5 text-sm"
+                  value={debugSearch.industrySectors}
+                  onChange={e => setDebugSearch(d => ({ ...d, industrySectors: e.target.value }))}
+                  placeholder="ex: Immobilier, Technologie"
+                />
+              </div>
+            </div>
+            {debugResult && (
+              <div className="space-y-3">
+                <div className="flex gap-3 flex-wrap text-xs">
+                  <span className="bg-slate-100 px-2 py-1 rounded">Total KB: <b>{debugResult.totalKB}</b></span>
+                  <span className="bg-blue-50 px-2 py-1 rounded">Après région: <b>{debugResult.afterRegionFilter}</b></span>
+                  <span className="bg-green-50 px-2 py-1 rounded">Après secteur: <b>{debugResult.afterSectorFilter}</b></span>
+                  <span className={`px-2 py-1 rounded text-xs ${debugResult.filters?.isMTL ? "bg-green-100 text-green-700" : "bg-slate-100"}`}>isMTL: {debugResult.filters?.isMTL ? "✓" : "✗"}</span>
+                </div>
+                <div className="pt-3 border-t">
+                  <p className="text-xs font-medium text-slate-600 mb-2">Top acceptés ({debugResult.accepted?.length || 0})</p>
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {(debugResult.accepted || []).map((e, i) => (
+                      <div key={i} className="text-xs bg-green-50 rounded px-2 py-1 flex gap-2">
+                        <span className="font-mono text-slate-600 w-36 truncate">{e.domain}</span>
+                        <span className="text-green-700">{(e.industrySectors || []).join(", ")}</span>
+                        <span className="ml-auto text-slate-400">{e.confidenceScore}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {debugResult.rejected?.length > 0 && (
+                  <div className="pt-3 border-t">
+                    <p className="text-xs font-medium text-slate-600 mb-2">Rejetés ({debugResult.rejected.length})</p>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {(debugResult.rejected || []).map((e, i) => (
+                        <div key={i} className="text-xs bg-red-50 rounded px-2 py-1 flex gap-2">
+                          <span className="font-mono text-slate-500 w-32 truncate">{e.domain}</span>
+                          <span className="text-red-600">{e.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Stats Auto-Expansion */}
+          <div className="bg-white rounded-xl border p-5">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="font-semibold text-slate-800">Stats Auto-Expansion KBEntityV2</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Distribution par sourceOrigin, secteur, et derniers ajouts WEB_TOPUP.</p>
+              </div>
+              <Button onClick={handleExpansionStats} disabled={maintenanceLoading} size="sm" variant="outline" className="gap-2 text-xs">
+                <RefreshCw className={`w-3.5 h-3.5 ${maintenanceLoading ? "animate-spin" : ""}`} />
+                Charger
+              </Button>
+            </div>
+            {expansionStats && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-slate-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-slate-800">{expansionStats.total}</div>
+                    <div className="text-xs text-slate-500">Total KBEntityV2</div>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-blue-600">{expansionStats.countBySource?.IMPORT || 0}</div>
+                    <div className="text-xs text-slate-500">IMPORT / MIGRATION</div>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-green-600">{expansionStats.webTopUpCount || 0}</div>
+                    <div className="text-xs text-slate-500">WEB_TOPUP ajouts</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-slate-600 mb-2">Par source</p>
+                    {Object.entries(expansionStats.countBySource || {}).map(([src, cnt]) => (
+                      <div key={src} className="text-xs bg-slate-50 rounded px-2 py-1 mb-1 flex justify-between">
+                        <span className="font-mono">{src}</span><span className="font-bold">{cnt}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-slate-600 mb-2">Par secteur (top)</p>
+                    {Object.entries(expansionStats.countBySector || {}).slice(0, 8).map(([s, cnt]) => (
+                      <div key={s} className="text-xs bg-slate-50 rounded px-2 py-1 mb-1 flex justify-between">
+                        <span className="truncate mr-2">{s}</span><span className="font-bold flex-shrink-0">{cnt}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {expansionStats.webTopUpEntries?.length > 0 && (
+                  <div className="pt-3 border-t">
+                    <p className="text-xs font-medium text-slate-600 mb-2">20 derniers ajouts WEB_TOPUP</p>
+                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                      {expansionStats.webTopUpEntries.map((e, i) => (
+                        <div key={i} className="text-xs bg-green-50 rounded px-2 py-1 flex gap-2">
+                          <span className="font-mono text-slate-600 w-36 truncate">{e.domain}</span>
+                          <span className="text-green-700">{(e.industrySectors || []).slice(0, 2).join(", ")}</span>
+                          <span className="ml-auto text-slate-400 flex-shrink-0">score:{e.confidenceScore}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Backfill KB */}
           <div className="bg-white rounded-xl border p-5">
             <div className="flex items-start justify-between mb-4">
