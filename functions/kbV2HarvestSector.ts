@@ -544,7 +544,9 @@ Deno.serve(async (req) => {
     }
 
     const batchInserted = inserted - batchInsertedBefore;
+    console.log(`[HARVEST] batch done: batchInserted=${batchInserted} fetched=${fetched}`);
     if (batchInserted < 5) batchConsecLow++; else batchConsecLow = 0;
+    if (batchConsecLow >= 5) { console.log(`[HARVEST] 5 consecutive low batches — stopping`); break; }
   }
 
   const currentAfter = currentBefore + (dryRun ? 0 : inserted);
