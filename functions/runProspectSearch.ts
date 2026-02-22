@@ -620,8 +620,8 @@ Deno.serve(async (req) => {
       const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
       if (existingDomains.has(domNorm)) continue;
 
-      // Sector matching avec synonymes
-      const { match: sectorMatch, matchedSectors: foundSectors } = kbMatchesSectors(kb);
+      // Sector matching avec synonymes + lazy backfill
+      const { match: sectorMatch, matchedSectors: foundSectors } = await kbMatchesSectors(kb);
       let matchedSectors = foundSectors;
 
       if (requiredSectors.length > 0 && !sectorMatch) {
