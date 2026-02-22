@@ -341,10 +341,13 @@ async function braveSearch(query, count = 20, offset = 0) {
     if (rem !== -1) braveRL.remaining = rem;
     if (rst !== -1) braveRL.reset = rst;
 
-    if (res.status === 429) { braveRL.count429++; return { results: [], rateLimited: true }; }
-    if (!res.ok) return { results: [], rateLimited: false };
+    if (res.status === 429) { braveRL.count429++; return { results: [], rateLimited: true, httpStatus: 429 }; }
+    if (!res.ok) {
+      console.log(`[BRAVE] non-ok status=${res.status}`);
+      return { results: [], rateLimited: false, httpStatus: res.status };
+    }
     const data = await res.json();
-    return { results: data.web?.results || [], rateLimited: false };
+    return { results: data.web?.results || [], rateLimited: false, httpStatus: res.status };
   } catch (e) {
     clearTimeout(t);
     return { results: [], rateLimited: e.name === "AbortError" };
