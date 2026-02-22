@@ -27,6 +27,10 @@ export default function Admin() {
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [backfillStats, setBackfillStats] = useState(null);
   const [expansionStats, setExpansionStats] = useState(null);
+  const [coverageStats, setCoverageStats] = useState(null);
+  const [harvestSector, setHarvestSector] = useState("Immobilier");
+  const [harvestResult, setHarvestResult] = useState(null);
+  const [harvestLoading, setHarvestLoading] = useState(false);
   const [debugSearch, setDebugSearch] = useState({ locationQuery: "Montréal", industrySectors: "Immobilier" });
   const [debugResult, setDebugResult] = useState(null);
   const [debugLoading, setDebugLoading] = useState(false);
