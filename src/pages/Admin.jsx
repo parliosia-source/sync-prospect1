@@ -75,6 +75,25 @@ export default function Admin() {
     setMaintenanceLoading(false);
   };
 
+  const handleExpansionStats = async () => {
+    setMaintenanceLoading(true);
+    const { data } = await base44.functions.invoke('kbV2AutoExpansionStats');
+    setExpansionStats(data);
+    setMaintenanceLoading(false);
+  };
+
+  const handleDebugSearch = async () => {
+    setDebugLoading(true);
+    setDebugResult(null);
+    const sectors = debugSearch.industrySectors.split(",").map(s => s.trim()).filter(Boolean);
+    const { data } = await base44.functions.invoke('kbV2SearchDebug', {
+      locationQuery: debugSearch.locationQuery,
+      industrySectors: sectors,
+    });
+    setDebugResult(data);
+    setDebugLoading(false);
+  };
+
   const handleBackfillExecute = async () => {
     if (!window.confirm("Appliquer le backfill à TOUTE la base (2000 entités)? Cette action est irréversible.")) return;
     setMaintenanceLoading(true);
