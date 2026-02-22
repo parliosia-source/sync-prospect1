@@ -208,14 +208,14 @@ Deno.serve(async (req) => {
         console.log(`[IMPORT_MASTER] ERR ${record.domain}: ${err.message}`);
         // Retry after short delay on rate limit
         if (err.message?.includes("429") || err.message?.includes("Rate limit")) {
-          await new Promise(r => setTimeout(r, 3000));
+          await new Promise(r => setTimeout(r, 8000));
         }
       }
     }
 
-    // Throttle between batches
+    // Throttle between batches — slow enough to avoid 429
     if (!dryRun && i + batchSize < rows.length) {
-      await new Promise(r => setTimeout(r, 1200));
+      await new Promise(r => setTimeout(r, 2500));
     }
 
     if (i % (batchSize * 10) === 0) {
