@@ -307,16 +307,21 @@ export default function Admin() {
 
           {/* Backfill KB */}
           <div className="bg-white rounded-xl border p-5">
-            <h3 className="font-semibold text-slate-800 mb-4">Backfill secteurs (IA rule-based)</h3>
-            <div className="flex gap-2 mb-4">
-              <Button onClick={handleBackfillDryRun} disabled={maintenanceLoading} variant="outline" className="gap-2">
-                <RefreshCw className={`w-4 h-4 ${maintenanceLoading ? "animate-spin" : ""}`} />
-                Dry run (500)
-              </Button>
-              <Button onClick={handleBackfillExecute} disabled={maintenanceLoading || !backfillStats} className="gap-2 bg-orange-600 hover:bg-orange-700">
-                <Zap className="w-4 h-4" />
-                Exécuter
-              </Button>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="font-semibold text-slate-800">Backfill secteurs + localisation + keywords</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Enrichit <code>industrySectors</code>, <code>hqCity</code>, <code>hqProvince</code>, <code>keywords</code> via dictionnaire de synonymes (2 000 entités)</p>
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={handleBackfillDryRun} disabled={maintenanceLoading} variant="outline" size="sm" className="gap-2 text-xs">
+                  <RefreshCw className={`w-3.5 h-3.5 ${maintenanceLoading ? "animate-spin" : ""}`} />
+                  Simuler (dry run)
+                </Button>
+                <Button onClick={handleBackfillExecute} disabled={maintenanceLoading || !backfillStats} size="sm" className="gap-2 bg-orange-600 hover:bg-orange-700 text-xs">
+                  <Zap className="w-3.5 h-3.5" />
+                  Appliquer tout
+                </Button>
+              </div>
             </div>
 
             {backfillStats && (
