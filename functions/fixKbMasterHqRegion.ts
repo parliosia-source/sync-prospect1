@@ -158,14 +158,20 @@ Deno.serve(async (req) => {
 
   console.log(`[FIX_REGION] END fixed=${fixed} skipped=${skipped} errors=${errors}`);
 
+  const nextOffset = offset + toFix.length;
+  const isComplete = nextOffset >= allToFix.length;
+
   return Response.json({
     dryRun,
     total: all.length,
-    toFix: toFix.length,
+    totalToFix: allToFix.length,
+    processed: toFix.length,
     fixed,
     skipped,
     errors,
     regionDistribution,
     samples,
+    nextOffset,
+    isComplete,
   });
 });
