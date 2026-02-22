@@ -86,6 +86,24 @@ export default function Admin() {
     setMaintenanceLoading(false);
   };
 
+  const handleCoverage = async () => {
+    setMaintenanceLoading(true);
+    const { data } = await base44.functions.invoke('kbV2CoverageBySector', { target: 150 });
+    setCoverageStats(data);
+    setMaintenanceLoading(false);
+  };
+
+  const handleHarvestSector = async (dryRun = false) => {
+    setHarvestLoading(true);
+    setHarvestResult(null);
+    const { data } = await base44.functions.invoke('kbV2HarvestSector', {
+      sector: harvestSector, target: 150, location: "GM", minScore: 75, maxWeb: 400, dryRun,
+    });
+    setHarvestResult(data);
+    setHarvestLoading(false);
+    if (!dryRun) handleCoverage();
+  };
+
   const handleDebugSearch = async () => {
     setDebugLoading(true);
     setDebugResult(null);
