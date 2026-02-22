@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+// kbV2DeleteCorrupted v2
 
 function isValidUrl(val) {
   if (!val) return false;
