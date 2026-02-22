@@ -3,6 +3,61 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 const BRAVE_KEY   = Deno.env.get("BRAVE_API_KEY");
 const SERPAPI_KEY = Deno.env.get("SERPAPI_API_KEY");
 
+// ── Dictionnaire de synonymes par secteur (partagé avec backfill) ──────────────
+const SECTOR_SYNONYMS = {
+  "Technologie": ["IT", "informatique", "SaaS", "logiciel", "software", "cloud", "IA", "AI",
+    "numérique", "digital", "cybersécurité", "cybersecurity", "données", "data", "développement",
+    "development", "startup", "tech", "infrastructure", "DevOps", "application", "plateforme",
+    "platform", "réseau", "network", "API", "programmation", "système", "ERP", "CRM"],
+  "Finance & Assurance": ["banque", "bank", "assurance", "insurance", "crédit", "credit", "prêt",
+    "loan", "placement", "investissement", "investment", "hypothèque", "mortgage", "courtage",
+    "brokerage", "fonds", "fund", "retraite", "pension", "actuaire", "fintech", "capital",
+    "trésorerie", "treasury", "actions", "obligations", "portefeuille", "épargne"],
+  "Santé & Pharma": ["santé", "health", "pharma", "pharmacie", "pharmacy", "médical", "medical",
+    "hôpital", "hospital", "clinique", "clinic", "médecin", "physician", "chirurgie", "surgery",
+    "diagnostic", "thérapie", "therapy", "laboratoire", "laboratory", "bien-être", "wellness",
+    "soin", "care", "infirmier", "nurse", "dentiste", "dentist"],
+  "Gouvernement & Public": ["gouvernement", "government", "municipalité", "municipality", "ville",
+    "city", "province", "fédéral", "federal", "ministère", "ministry", "parlement", "parliament",
+    "assemblée", "assembly", "CISSS", "CIUSSS", "agence gouvernementale", "administration"],
+  "Éducation & Formation": ["université", "university", "collège", "college", "école", "school",
+    "cégep", "formation", "training", "cours", "course", "apprentissage", "learning", "étudiant",
+    "student", "professeur", "professor", "diplôme", "degree", "certification", "académie"],
+  "Associations & OBNL": ["association", "OBNL", "NPO", "fondation", "foundation", "organisme",
+    "charitable", "bénévole", "volunteer", "cause sociale", "ONG", "NGO", "syndicat",
+    "communautaire", "community", "mission", "ordre professionnel"],
+  "Immobilier": ["immobilier", "real estate", "propriété", "property", "construction", "promoteur",
+    "developer", "courtier immobilier", "agent immobilier", "logement", "housing", "bureau",
+    "bâtiment", "building", "terrain", "condo", "locatif", "REIT", "gestion immobilière"],
+  "Droit & Comptabilité": ["avocat", "lawyer", "droit", "law", "comptable", "accountant",
+    "comptabilité", "accounting", "juridique", "legal", "notaire", "notary", "cabinet", "firm",
+    "fiscalité", "tax", "audit", "conformité", "compliance", "fiducie", "trust", "CPA"],
+  "Industrie & Manufacture": ["usine", "factory", "manufacture", "fabrication", "production",
+    "industrie", "industry", "acier", "steel", "chimie", "chemistry", "mécanique", "mechanics",
+    "automatisation", "automation", "assemblage", "assembly", "machinerie", "ingénierie",
+    "engineering", "fournisseur", "supplier", "équipement"],
+  "Commerce de détail": ["commerce", "retail", "magasin", "store", "boutique", "vente", "sale",
+    "détaillant", "retailer", "marchandise", "merchandise", "épicerie", "grocery", "e-commerce",
+    "mode", "fashion", "alimentation", "franchise"],
+  "Transport & Logistique": ["transport", "logistique", "logistics", "camion", "truck", "livraison",
+    "delivery", "cargo", "fret", "freight", "chauffeur", "driver", "port", "aéroport", "airport",
+    "entrepôt", "warehouse", "courrier", "courier", "distribution", "supply chain", "transitaire"],
+};
+
+// Mapping province pour filtrage KB
+const PROVINCE_ALIASES = {
+  "QC": ["québec", "quebec", "qc", "montréal", "montreal", "laval", "longueuil", "gatineau", "sherbrooke", "lévis", "levis", "saguenay", "brossard"],
+  "ON": ["ontario", "on", "toronto", "ottawa", "hamilton", "london"],
+  "BC": ["british columbia", "colombie-britannique", "bc", "vancouver", "victoria"],
+  "AB": ["alberta", "ab", "calgary", "edmonton"],
+};
+
+// Synonymes → requêtes de recherche enrichies
+function getSectorSearchTerms(sector) {
+  const syns = SECTOR_SYNONYMS[sector] || [];
+  return syns.slice(0, 8); // Top 8 pour les queries
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function normText(s) {
   return (s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
