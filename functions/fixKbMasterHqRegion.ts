@@ -32,11 +32,22 @@ function parseHqLocation(hqCity, hqProvince, hqCountry) {
   if (city.includes(",")) {
     const parts = city.split(",").map(s => s.trim());
     city = parts[0] || "";
-    province = parts[1] || province;
-    country = parts[2] || country;
+    if (parts.length >= 3) {
+      province = parts[1] || province;
+      country = parts[2] || country;
+    } else if (parts.length === 2) {
+      province = parts[1] || province;
+    }
   }
 
-  return { city: normText(city), province: normText(province), country: country.trim().toUpperCase() };
+  // Normalize country: "Canada" → "CA"
+  const countryRaw = country.trim();
+  const countryCode = countryRaw === "Canada" ? "CA"
+    : countryRaw === "United States" || countryRaw === "USA" ? "US"
+    : countryRaw.length === 2 ? countryRaw.toUpperCase()
+    : "CA";
+
+  return { city: normText(city), province: normText(province), country: countryCode };
 }
 
 function resolveRegion(hqCity, hqProvince, hqCountry, hqRegion) {
