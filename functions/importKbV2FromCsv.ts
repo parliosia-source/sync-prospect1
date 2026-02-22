@@ -143,10 +143,11 @@ Deno.serve(async (req) => {
   if (!csvRes.ok) return Response.json({ error: `Cannot fetch CSV: ${csvRes.status}` }, { status: 400 });
   const csvText = await csvRes.text();
 
-  const rows = parseCsv(csvText);
-  console.log(`[IMPORT_KBV2] Parsed ${rows.length} rows from CSV`);
+  const allRows = parseCsv(csvText);
+  const rows = allRows.slice(offset, offset + limit);
+  console.log(`[IMPORT_KBV2] Parsed ${allRows.length} total rows, processing ${rows.length} (offset=${offset})`);
 
-  if (rows.length === 0) return Response.json({ error: "No rows parsed from CSV" }, { status: 400 });
+  if (allRows.length === 0) return Response.json({ error: "No rows parsed from CSV" }, { status: 400 });
 
   // Load existing domains for upsert
   let existingByDomain = {};
