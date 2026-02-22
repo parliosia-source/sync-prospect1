@@ -349,44 +349,69 @@ export default function Admin() {
           <div className="bg-white rounded-xl border p-5">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="font-semibold text-slate-800">Backfill secteurs + localisation + keywords</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Enrichit <code>industrySectors</code>, <code>hqCity</code>, <code>hqProvince</code>, <code>keywords</code> via dictionnaire de synonymes (2 000 entités)</p>
+                <h3 className="font-semibold text-slate-800">Backfill complet — secteurs + localisation + keywords</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Enrichit <code className="bg-slate-100 px-1 rounded">industrySectors</code>, <code className="bg-slate-100 px-1 rounded">hqCity/hqProvince</code>, <code className="bg-slate-100 px-1 rounded">keywords</code> par passes de 500 jusqu'à épuisement de la KB</p>
               </div>
               <div className="flex gap-2">
-                <Button onClick={handleBackfillDryRun} disabled={maintenanceLoading} variant="outline" size="sm" className="gap-2 text-xs">
+                <Button onClick={handleBackfillDryRun} disabled={maintenanceLoading || backfillRunning} variant="outline" size="sm" className="gap-2 text-xs">
                   <RefreshCw className={`w-3.5 h-3.5 ${maintenanceLoading ? "animate-spin" : ""}`} />
-                  Simuler (dry run)
+                  Simuler (500)
                 </Button>
-                <Button onClick={handleBackfillExecute} disabled={maintenanceLoading || !backfillStats} size="sm" className="gap-2 bg-orange-600 hover:bg-orange-700 text-xs">
+                <Button onClick={handleBackfillExecute} disabled={maintenanceLoading || backfillRunning} size="sm" className="gap-2 bg-orange-600 hover:bg-orange-700 text-xs">
                   <Zap className="w-3.5 h-3.5" />
-                  Appliquer tout
+                  Backfill complet
                 </Button>
               </div>
             </div>
 
+            {/* Progress bar while running */}
+            {backfillRunning && backfillProgress && (
+              <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <RefreshCw className="w-3.5 h-3.5 text-orange-600 animate-spin" />
+                  <span className="text-xs font-medium text-orange-800">
+                    Passe {backfillProgress.pass} en cours… offset={backfillProgress.offset}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-xs text-orange-700">
+                  <span>Scannées : <strong>{backfillProgress.scanned}</strong></span>
+                  <span>Secteurs : <strong>{backfillProgress.updatedSectors}</strong></span>
+                  <span>Localisations : <strong>{backfillProgress.updatedLocation}</strong></span>
+                </div>
+              </div>
+            )}
+
             {backfillStats && (
               <div className="space-y-3">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {backfillStats.passes && (
+                  <div className="text-xs text-slate-500 mb-1">Terminé en <strong>{backfillStats.passes} passe(s)</strong></div>
+                )}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                   <div className="bg-slate-50 rounded-lg p-3">
                     <div className="text-xl font-bold text-slate-800">{backfillStats.scanned}</div>
                     <div className="text-xs text-slate-500">Scannées</div>
                   </div>
                   <div className="bg-green-50 rounded-lg p-3">
-                    <div className="text-xl font-bold text-green-600">{backfillStats.updatedSectors ?? backfillStats.updated}</div>
-                    <div className="text-xs text-slate-500">Secteurs détectés</div>
+                    <div className="text-xl font-bold text-green-600">{backfillStats.updatedSectors ?? 0}</div>
+                    <div className="text-xs text-slate-500">Secteurs</div>
                   </div>
                   <div className="bg-blue-50 rounded-lg p-3">
-                    <div className="text-xl font-bold text-blue-600">{backfillStats.updatedLocation ?? "—"}</div>
-                    <div className="text-xs text-slate-500">Localisation parsée</div>
+                    <div className="text-xl font-bold text-blue-600">{backfillStats.updatedLocation ?? 0}</div>
+                    <div className="text-xs text-slate-500">Localisations</div>
+                  </div>
+                  <div className="bg-purple-50 rounded-lg p-3">
+                    <div className="text-xl font-bold text-purple-600">{backfillStats.updatedKeywords ?? 0}</div>
+                    <div className="text-xs text-slate-500">Keywords</div>
                   </div>
                   <div className="bg-yellow-50 rounded-lg p-3">
-                    <div className="text-xl font-bold text-yellow-600">{backfillStats.skippedAlreadyFilled}</div>
-                    <div className="text-xs text-slate-500">Déjà remplies</div>
+                    <div className="text-xl font-bold text-yellow-600">{backfillStats.skippedAlreadyFilled ?? 0}</div>
+                    <div className="text-xs text-slate-500">Déjà OK</div>
                   </div>
-                  <div className="bg-red-50 rounded-lg p-3">
-                    <div className="text-xl font-bold text-red-600">{backfillStats.skippedLowConfidence}</div>
-                    <div className="text-xs text-slate-500">Confiance basse</div>
-                  </div>
+                </div>
+                <div className="flex gap-2 text-xs">
+                  <span className="bg-red-50 text-red-700 px-2 py-1 rounded">
+                    Confiance basse (non classifiées) : <strong>{backfillStats.skippedLowConfidence ?? 0}</strong>
+                  </span>
                 </div>
 
                 {backfillStats.bySector && Object.keys(backfillStats.bySector).length > 0 && (
