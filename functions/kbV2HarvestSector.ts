@@ -443,8 +443,9 @@ Deno.serve(async (req) => {
       if (inserted >= need) break;
       if (Date.now() - START > MAX_MS) break;
 
-      const { results, rateLimited: rl } = await braveSearch(query, 20, pageIdx * 20);
+      const { results, rateLimited: rl, httpStatus } = await braveSearch(query, 20, pageIdx * 20);
       fetched += results.length;
+      console.log(`[HARVEST] braveSearch results=${results.length} rl=${rl} status=${httpStatus}`);
       if (rl) { rateLimited = true; break; }
       if (results.length === 0) break;
 
