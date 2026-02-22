@@ -26,8 +26,6 @@ export default function Admin() {
   const [kbStats, setKbStats] = useState(null);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [backfillStats, setBackfillStats] = useState(null);
-  const [backfillRunning, setBackfillRunning] = useState(false);
-  const [backfillProgress, setBackfillProgress] = useState(null); // { pass, scanned, updatedSectors, updatedLocation, updatedKeywords }
 
   useEffect(() => {
     base44.auth.me().then(u => {
@@ -68,56 +66,18 @@ export default function Admin() {
 
   const handleBackfillDryRun = async () => {
     setMaintenanceLoading(true);
-    setBackfillStats(null);
-    const { data } = await base44.functions.invoke('backfillKbIndustrySectors', {
-      dryRun: true, offset: 0, batchSize: 500, maxEntities: 500, fillLocation: true,
-    });
+    const { data } = await base44.functions.invoke('backfillKbIndustrySectors', { dryRun: true, limit: 2000, fillLocation: true });
     setBackfillStats(data);
     setMaintenanceLoading(false);
   };
 
   const handleBackfillExecute = async () => {
-    if (!window.confirm("Appliquer le backfill complet sur toute la KB ? L'opération tourne en boucle jusqu'à ce que tout soit enrichi.")) return;
-    setBackfillRunning(true);
-    setBackfillStats(null);
-
-    let offset = 0;
-    let pass = 0;
-    const totals = { scanned: 0, updatedSectors: 0, updatedLocation: 0, updatedKeywords: 0, skippedAlreadyFilled: 0, skippedLowConfidence: 0 };
-    let lastBySector = {};
-    let lastSample = [];
-
-    const MAX_PASSES = 20; // 20 × 500 = 10 000 entités max
-    while (pass < MAX_PASSES) {
-      pass++;
-      setBackfillProgress({ pass, offset, ...totals });
-
-      const { data } = await base44.functions.invoke('backfillKbIndustrySectors', {
-        dryRun: false, offset, batchSize: 500, maxEntities: 500, fillLocation: true,
-      });
-
-      totals.scanned          += data.scanned || 0;
-      totals.updatedSectors   += data.updatedSectors || 0;
-      totals.updatedLocation  += data.updatedLocation || 0;
-      totals.updatedKeywords  += data.updatedKeywords || 0;
-      totals.skippedAlreadyFilled += data.skippedAlreadyFilled || 0;
-      totals.skippedLowConfidence += data.skippedLowConfidence || 0;
-      lastBySector = data.bySector || {};
-      if (data.sampleUpdated?.length) lastSample = data.sampleUpdated;
-
-      offset = data.nextOffset || (offset + 500);
-
-      setBackfillProgress({ pass, offset, ...totals });
-
-      // Stop when no more entities or nothing was updated (fully enriched batch)
-      if (!data.hasMore || data.scanned === 0) break;
-      if (data.updatedSectors === 0 && data.updatedLocation === 0 && data.updatedKeywords === 0 && data.skippedLowConfidence === 0) break;
-    }
-
-    setBackfillStats({ ...totals, bySector: lastBySector, sampleUpdated: lastSample, dryRun: false, passes: pass });
-    setBackfillProgress(null);
+    if (!window.confirm("Appliquer le backfill à TOUTE la base (2000 entités)? Cette action est irréversible.")) return;
+    setMaintenanceLoading(true);
+    const { data } = await base44.functions.invoke('backfillKbIndustrySectors', { dryRun: false, limit: 2000, fillLocation: true });
+    setBackfillStats(data);
     await loadMaintenance();
-    setBackfillRunning(false);
+    setMaintenanceLoading(false);
   };
 
   const handleSaveTemplate = async () => {
@@ -349,69 +309,44 @@ export default function Admin() {
           <div className="bg-white rounded-xl border p-5">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="font-semibold text-slate-800">Backfill complet — secteurs + localisation + keywords</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Enrichit <code className="bg-slate-100 px-1 rounded">industrySectors</code>, <code className="bg-slate-100 px-1 rounded">hqCity/hqProvince</code>, <code className="bg-slate-100 px-1 rounded">keywords</code> par passes de 500 jusqu'à épuisement de la KB</p>
+                <h3 className="font-semibold text-slate-800">Backfill secteurs + localisation + keywords</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Enrichit <code>industrySectors</code>, <code>hqCity</code>, <code>hqProvince</code>, <code>keywords</code> via dictionnaire de synonymes (2 000 entités)</p>
               </div>
               <div className="flex gap-2">
-                <Button onClick={handleBackfillDryRun} disabled={maintenanceLoading || backfillRunning} variant="outline" size="sm" className="gap-2 text-xs">
+                <Button onClick={handleBackfillDryRun} disabled={maintenanceLoading} variant="outline" size="sm" className="gap-2 text-xs">
                   <RefreshCw className={`w-3.5 h-3.5 ${maintenanceLoading ? "animate-spin" : ""}`} />
-                  Simuler (500)
+                  Simuler (dry run)
                 </Button>
-                <Button onClick={handleBackfillExecute} disabled={maintenanceLoading || backfillRunning} size="sm" className="gap-2 bg-orange-600 hover:bg-orange-700 text-xs">
+                <Button onClick={handleBackfillExecute} disabled={maintenanceLoading || !backfillStats} size="sm" className="gap-2 bg-orange-600 hover:bg-orange-700 text-xs">
                   <Zap className="w-3.5 h-3.5" />
-                  Backfill complet
+                  Appliquer tout
                 </Button>
               </div>
             </div>
 
-            {/* Progress bar while running */}
-            {backfillRunning && backfillProgress && (
-              <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <RefreshCw className="w-3.5 h-3.5 text-orange-600 animate-spin" />
-                  <span className="text-xs font-medium text-orange-800">
-                    Passe {backfillProgress.pass} en cours… offset={backfillProgress.offset}
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-xs text-orange-700">
-                  <span>Scannées : <strong>{backfillProgress.scanned}</strong></span>
-                  <span>Secteurs : <strong>{backfillProgress.updatedSectors}</strong></span>
-                  <span>Localisations : <strong>{backfillProgress.updatedLocation}</strong></span>
-                </div>
-              </div>
-            )}
-
             {backfillStats && (
               <div className="space-y-3">
-                {backfillStats.passes && (
-                  <div className="text-xs text-slate-500 mb-1">Terminé en <strong>{backfillStats.passes} passe(s)</strong></div>
-                )}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="bg-slate-50 rounded-lg p-3">
                     <div className="text-xl font-bold text-slate-800">{backfillStats.scanned}</div>
                     <div className="text-xs text-slate-500">Scannées</div>
                   </div>
                   <div className="bg-green-50 rounded-lg p-3">
-                    <div className="text-xl font-bold text-green-600">{backfillStats.updatedSectors ?? 0}</div>
-                    <div className="text-xs text-slate-500">Secteurs</div>
+                    <div className="text-xl font-bold text-green-600">{backfillStats.updatedSectors ?? backfillStats.updated}</div>
+                    <div className="text-xs text-slate-500">Secteurs détectés</div>
                   </div>
                   <div className="bg-blue-50 rounded-lg p-3">
-                    <div className="text-xl font-bold text-blue-600">{backfillStats.updatedLocation ?? 0}</div>
-                    <div className="text-xs text-slate-500">Localisations</div>
-                  </div>
-                  <div className="bg-purple-50 rounded-lg p-3">
-                    <div className="text-xl font-bold text-purple-600">{backfillStats.updatedKeywords ?? 0}</div>
-                    <div className="text-xs text-slate-500">Keywords</div>
+                    <div className="text-xl font-bold text-blue-600">{backfillStats.updatedLocation ?? "—"}</div>
+                    <div className="text-xs text-slate-500">Localisation parsée</div>
                   </div>
                   <div className="bg-yellow-50 rounded-lg p-3">
-                    <div className="text-xl font-bold text-yellow-600">{backfillStats.skippedAlreadyFilled ?? 0}</div>
-                    <div className="text-xs text-slate-500">Déjà OK</div>
+                    <div className="text-xl font-bold text-yellow-600">{backfillStats.skippedAlreadyFilled}</div>
+                    <div className="text-xs text-slate-500">Déjà remplies</div>
                   </div>
-                </div>
-                <div className="flex gap-2 text-xs">
-                  <span className="bg-red-50 text-red-700 px-2 py-1 rounded">
-                    Confiance basse (non classifiées) : <strong>{backfillStats.skippedLowConfidence ?? 0}</strong>
-                  </span>
+                  <div className="bg-red-50 rounded-lg p-3">
+                    <div className="text-xl font-bold text-red-600">{backfillStats.skippedLowConfidence}</div>
+                    <div className="text-xs text-slate-500">Confiance basse</div>
+                  </div>
                 </div>
 
                 {backfillStats.bySector && Object.keys(backfillStats.bySector).length > 0 && (

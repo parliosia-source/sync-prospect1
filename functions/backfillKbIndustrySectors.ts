@@ -1,6 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
 // ── Dictionnaire de synonymes par secteur ──────────────────────────────────────
+// Utilisé pour le matching ET la classification
 const SECTOR_SYNONYMS = {
   "Technologie": ["IT", "informatique", "SaaS", "logiciel", "software", "cloud", "IA", "AI", "numérique",
     "digital", "cybersécurité", "cybersecurity", "données", "data", "développement", "development",
@@ -44,9 +45,11 @@ const SECTOR_SYNONYMS = {
     "supply chain", "transitaire", "maritime", "ferroviaire"],
 };
 
+// Construit les règles de matching depuis les synonymes
 function buildSectorRules() {
   const rules = {};
   for (const [sector, synonyms] of Object.entries(SECTOR_SYNONYMS)) {
+    // Les 12 premiers synonymes = strong (+2), le reste = weak (+1)
     rules[sector] = {
       includeStrong: synonyms.slice(0, 12).map(s => s.toLowerCase()),
       includeWeak: synonyms.slice(12).map(s => s.toLowerCase()),
@@ -59,9 +62,10 @@ function buildSectorRules() {
 
 const SECTOR_RULES = buildSectorRules();
 const ALL_SECTORS = Object.keys(SECTOR_SYNONYMS);
+
 const STRONG_GLOBAL_EXCLUDES = /\b(blog|news|presse|press|award|gala|emploi|job|directory|classement|ranking|top)\b/i;
 
-// ── Location parser ────────────────────────────────────────────────────────────
+// ── Dictionnaire de villes/provinces canadiennes ────────────────────────────────
 const PROVINCE_MAP = {
   "québec": "QC", "quebec": "QC", "qc": "QC",
   "ontario": "ON", "on": "ON",
@@ -81,27 +85,41 @@ const PROVINCE_MAP = {
 const MAJOR_CITIES = {
   "montréal": "Montréal", "montreal": "Montréal",
   "québec": "Québec", "quebec city": "Québec",
-  "toronto": "Toronto", "vancouver": "Vancouver",
-  "calgary": "Calgary", "edmonton": "Edmonton",
-  "ottawa": "Ottawa", "winnipeg": "Winnipeg",
-  "laval": "Laval", "longueuil": "Longueuil",
-  "gatineau": "Gatineau", "sherbrooke": "Sherbrooke",
-  "saguenay": "Saguenay", "lévis": "Lévis", "levis": "Lévis",
-  "terrebonne": "Terrebonne", "brossard": "Brossard",
+  "toronto": "Toronto",
+  "vancouver": "Vancouver",
+  "calgary": "Calgary",
+  "edmonton": "Edmonton",
+  "ottawa": "Ottawa",
+  "winnipeg": "Winnipeg",
+  "laval": "Laval",
+  "longueuil": "Longueuil",
+  "gatineau": "Gatineau",
+  "sherbrooke": "Sherbrooke",
+  "saguenay": "Saguenay",
+  "lévis": "Lévis", "levis": "Lévis",
+  "terrebonne": "Terrebonne",
+  "brossard": "Brossard",
 };
 
 function parseLocation(hqLocation) {
   if (!hqLocation) return {};
   const raw = hqLocation.toLowerCase();
   let city = null, province = null;
+
+  // Match city
   for (const [key, val] of Object.entries(MAJOR_CITIES)) {
     if (raw.includes(key)) { city = val; break; }
   }
+
+  // Match province
   for (const [key, val] of Object.entries(PROVINCE_MAP)) {
+    // Must be word boundary or after comma/space
     if (new RegExp(`(^|,|\\s)${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|,|$)`).test(raw)) {
-      province = val; break;
+      province = val;
+      break;
     }
   }
+
   return { city, province, country: "CA" };
 }
 
@@ -109,156 +127,161 @@ function normText(t) {
   return (t || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, " ").replace(/[^\w\s]/g, " ");
 }
 
-function matchSectorsBackfill(fullText) {
+function matchSectorsBackfill(fullText, sectors) {
   const matched = [];
   const textNorm = normText(fullText);
+
   if (STRONG_GLOBAL_EXCLUDES.test(fullText)) return [];
-  for (const sector of ALL_SECTORS) {
+
+  for (const sector of sectors) {
     const rules = SECTOR_RULES[sector];
     if (!rules) continue;
+
     let score = 0;
-    for (const kw of rules.includeStrong) { if (textNorm.includes(normText(kw))) score += 2; }
-    for (const kw of rules.includeWeak)   { if (textNorm.includes(normText(kw))) score += 1; }
-    for (const kw of rules.excludeStrong) { if (textNorm.includes(normText(kw))) score -= 3; }
+    for (const kw of rules.includeStrong) {
+      const kwNorm = normText(kw);
+      if (textNorm.includes(kwNorm)) score += 2;
+    }
+    for (const kw of rules.includeWeak) {
+      const kwNorm = normText(kw);
+      if (textNorm.includes(kwNorm)) score += 1;
+    }
+    for (const kw of rules.excludeStrong) {
+      const kwNorm = normText(kw);
+      if (textNorm.includes(kwNorm)) score -= 3;
+    }
+
     if (score >= 2) matched.push({ sector, score });
   }
+
+  // Sort by score, return sector names
   return matched.sort((a, b) => b.score - a.score).map(m => m.sector);
 }
 
+// Extraire des keywords pertinents depuis name/notes/tags
 function extractKeywords(kb) {
   const words = normText(`${kb.name || ""} ${kb.notes || ""} ${(kb.tags || []).join(" ")}`).split(/\s+/);
   const stopwords = new Set(["le", "la", "les", "de", "du", "des", "un", "une", "et", "en", "au", "aux", "the", "of", "and", "in", "a", "an"]);
   return [...new Set(words.filter(w => w.length > 4 && !stopwords.has(w)))].slice(0, 10);
 }
 
-// ── Main handler ───────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
+
   if (!user || user.role !== "admin") {
     return Response.json({ error: "Forbidden: Admin only" }, { status: 403 });
   }
 
   const body = await req.json().catch(() => ({}));
-  const dryRun        = body.dryRun !== false;
-  const startOffset   = body.offset || 0;          // Cursor: start at this global offset
-  const batchSize     = body.batchSize || 500;      // Entities per page (max 500)
-  const maxEntities   = body.maxEntities || 5000;   // Hard cap per call
-  const fillLocation  = body.fillLocation !== false;
-  const forceAll      = body.forceAll === true;     // If true, re-process even already-filled entities
+  const dryRun = body.dryRun !== false;
+  const limit = body.limit || 2000;
+  const onlyEmpty = body.onlyEmpty !== false; // Par défaut: ne traite que ceux sans sectors
+  const fillLocation = body.fillLocation !== false; // Aussi parser hqLocation → hqCity/hqProvince
 
-  console.log(`[BACKFILL] START offset=${startOffset} batchSize=${batchSize} maxEntities=${maxEntities} dryRun=${dryRun} forceAll=${forceAll}`);
+  console.log(`[BACKFILL] START: dryRun=${dryRun}, limit=${limit}, onlyEmpty=${onlyEmpty}, fillLocation=${fillLocation}`);
 
   let scanned = 0;
   let updatedSectors = 0;
   let updatedLocation = 0;
-  let updatedKeywords = 0;
   let skippedAlreadyFilled = 0;
   let skippedLowConfidence = 0;
-  let lastProcessedOffset = startOffset;
-  let hasMore = false;
   const bySector = {};
   const sampleUpdated = [];
+
   ALL_SECTORS.forEach(s => { bySector[s] = 0; });
 
-  let globalOffset = startOffset;
+  let page = 0;
+  const pageSize = 500;
+  let done = false;
 
-  while (scanned < maxEntities) {
-    const toFetch = Math.min(batchSize, maxEntities - scanned);
+  while (!done) {
     const batch = await base44.asServiceRole.entities.KBEntity.list(
-      '-created_date', toFetch, globalOffset
+      '-updated_date', pageSize, page * pageSize
     ).catch(() => []);
 
-    if (!batch || batch.length === 0) { hasMore = false; break; }
-    console.log(`[BACKFILL] offset=${globalOffset} fetched=${batch.length} scanned_so_far=${scanned}`);
+    if (!batch || batch.length === 0) break;
+    console.log(`[BACKFILL] page=${page} fetched=${batch.length}, scanned=${scanned}`);
 
     for (const kb of batch) {
+      if (scanned >= limit) { done = true; break; }
       scanned++;
-      lastProcessedOffset = globalOffset + scanned;
 
       const hasSectors = Array.isArray(kb.industrySectors) && kb.industrySectors.length > 0;
-      const hasCity    = !!kb.hqCity;
-      const hasKeywords = Array.isArray(kb.keywords) && kb.keywords.length > 0;
+      const hasCity = !!kb.hqCity;
 
-      // Skip if fully enriched (unless forceAll)
-      if (!forceAll && hasSectors && hasCity && hasKeywords) {
+      // Skip if everything already filled
+      if (onlyEmpty && hasSectors && hasCity) {
         skippedAlreadyFilled++;
         continue;
       }
 
       const updates = {};
 
-      // 1. Sector matching
-      if (!hasSectors || forceAll) {
-        const fullText = [kb.name || "", kb.domain || "",
+      // ── 1. Sector matching ─────────────────────────────────────────────────
+      if (!hasSectors) {
+        const fullText = [
+          kb.name || "",
+          kb.domain || "",
           (Array.isArray(kb.tags) ? kb.tags.join(" ") : ""),
           kb.notes || "",
           (Array.isArray(kb.keywords) ? kb.keywords.join(" ") : ""),
         ].join(" ");
 
-        const matched = matchSectorsBackfill(fullText);
+        const matched = matchSectorsBackfill(fullText, ALL_SECTORS);
+
         if (matched.length > 0) {
           updates.industrySectors = matched;
           updates.industryLabel = matched[0];
           updatedSectors++;
           matched.forEach(s => { if (bySector[s] !== undefined) bySector[s]++; });
           if (sampleUpdated.length < 10) {
-            sampleUpdated.push({ domain: kb.domain, name: kb.name, sectors: matched });
+            sampleUpdated.push({ domain: kb.domain, name: kb.name, sectors: matched, industryLabel: matched[0] });
           }
         } else {
           skippedLowConfidence++;
         }
       }
 
-      // 2. Location parsing
-      if (fillLocation && (!hasCity || forceAll) && kb.hqLocation) {
+      // ── 2. Location parsing ────────────────────────────────────────────────
+      if (fillLocation && !hasCity && kb.hqLocation) {
         const { city, province } = parseLocation(kb.hqLocation);
-        if (city)     { updates.hqCity = city; updatedLocation++; }
-        if (province) { updates.hqProvince = province; }
+        if (city) { updates.hqCity = city; updatedLocation++; }
+        if (province) updates.hqProvince = province;
         if (!kb.hqCountry) updates.hqCountry = "CA";
       }
 
-      // 3. Keywords extraction
-      if (!hasKeywords || forceAll) {
+      // ── 3. Keywords extraction ─────────────────────────────────────────────
+      if (!Array.isArray(kb.keywords) || kb.keywords.length === 0) {
         const kws = extractKeywords(kb);
-        if (kws.length > 0) { updates.keywords = kws; updatedKeywords++; }
+        if (kws.length > 0) updates.keywords = kws;
       }
 
+      // Apply updates
       if (Object.keys(updates).length > 0 && !dryRun) {
         await base44.asServiceRole.entities.KBEntity.update(kb.id, updates).catch(err => {
-          console.error(`[BACKFILL] update failed ${kb.id}: ${err.message}`);
+          console.error(`[BACKFILL] update failed for ${kb.id}:`, err.message);
         });
       }
     }
 
-    globalOffset += batch.length;
-
-    // If we got fewer records than requested, we've reached the end
-    if (batch.length < toFetch) { hasMore = false; break; }
-
-    hasMore = true;
+    if (done) break;
+    if (batch.length < pageSize) break;
+    page++;
+    if (page >= 20) { console.log(`[BACKFILL] safety stop: page=${page}`); break; }
   }
 
-  // If we hit maxEntities but got a full batch, there's likely more
-  if (scanned >= maxEntities && hasMore) {
-    hasMore = true;
-  }
-
-  console.log(`[BACKFILL] END scanned=${scanned} updatedSectors=${updatedSectors} updatedLocation=${updatedLocation} nextOffset=${lastProcessedOffset} hasMore=${hasMore}`);
+  console.log(`[BACKFILL] END: scanned=${scanned}, updatedSectors=${updatedSectors}, updatedLocation=${updatedLocation}`);
 
   return Response.json({
     scanned,
     updatedSectors,
     updatedLocation,
-    updatedKeywords,
     skippedAlreadyFilled,
     skippedLowConfidence,
-    nextOffset: lastProcessedOffset,
-    hasMore,
-    bySector: Object.fromEntries(
-      Object.entries(bySector).filter(([_, c]) => c > 0).sort((a, b) => b[1] - a[1])
-    ),
+    bySector: Object.fromEntries(Object.entries(bySector).filter(([_, c]) => c > 0).sort((a, b) => b[1] - a[1])),
     sampleUpdated,
     dryRun,
+    synonymsPerSector: Object.fromEntries(Object.entries(SECTOR_SYNONYMS).map(([s, syns]) => [s, syns.length])),
   });
 });
