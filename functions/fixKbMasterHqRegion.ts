@@ -151,7 +151,7 @@ Deno.serve(async (req) => {
       }
     }
     if (!dryRun && i + 10 < toFix.length) {
-      await new Promise(r => setTimeout(r, 2500));
+      await new Promise(r => setTimeout(r, 4500));
     }
     if (i % 100 === 0) console.log(`[FIX_REGION] progress ${i}/${toFix.length} fixed=${fixed}`);
   }
