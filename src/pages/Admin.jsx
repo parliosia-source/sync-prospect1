@@ -26,6 +26,10 @@ export default function Admin() {
   const [kbStats, setKbStats] = useState(null);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [backfillStats, setBackfillStats] = useState(null);
+  const [expansionStats, setExpansionStats] = useState(null);
+  const [debugSearch, setDebugSearch] = useState({ locationQuery: "Montréal", industrySectors: "Immobilier" });
+  const [debugResult, setDebugResult] = useState(null);
+  const [debugLoading, setDebugLoading] = useState(false);
 
   useEffect(() => {
     base44.auth.me().then(u => {
