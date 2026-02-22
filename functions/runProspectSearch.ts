@@ -510,8 +510,9 @@ Deno.serve(async (req) => {
       if (!e.domain || !e.website || !e.name) return false;
       const domNorm = e.domain.toLowerCase().replace(/^www\./, "");
       if (existingDomains.has(domNorm)) return false;
-      if (isMTL) return e.hqRegion === "MTL";
-      if (targetProvince === "QC") return ["MTL", "QC_OTHER"].includes(e.hqRegion) || e.hqProvince === "QC";
+      // GM includes MTL + GM hqRegion entries from harvest
+      if (isMTL) return e.hqRegion === "MTL" || e.hqRegion === "GM";
+      if (targetProvince === "QC") return ["MTL", "QC_OTHER", "GM"].includes(e.hqRegion) || e.hqProvince === "QC";
       if (targetProvince) return e.hqProvince === targetProvince;
       return true;
     });
