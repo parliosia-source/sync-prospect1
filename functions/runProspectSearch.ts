@@ -499,42 +499,13 @@ Deno.serve(async (req) => {
 
   try {
     // ════════════════════════════════════════════════════════════════════════════
-    // PHASE 1: KB_FILL
+    // PHASE 1a: KB_V2_FILL (KBEntityV2 — prioritaire)
     // ════════════════════════════════════════════════════════════════════════════
-    console.log(`[KB_FILL] START`);
-
-    // B2) Paginated KB query (robustly fetch all available)
-    let kbAll = [];
-    let kbPage = 0;
-    const kbPageSize = 500;
-    while (true) {
-      const batch = await base44.asServiceRole.entities.KBEntity.list(
-        '-updated_date',
-        kbPageSize,
-        kbPage * kbPageSize
-      ).catch(() => []);
-      
-      if (!batch || batch.length === 0) break;
-      kbAll = kbAll.concat(batch);
-      console.log(`[KB_FILL] page=${kbPage} loaded=${batch.length} total_so_far=${kbAll.length}`);
-      
-      if (batch.length < kbPageSize) break;
-      kbPage++;
-      
-      // Safety: stop after 20 pages (10k entities) or if time budget exceeded
-      if (kbPage >= 20 || Date.now() - START_TIME > MAX_DURATION_MS * 0.3) {
-        console.log(`[KB_FILL] pagination halted: page=${kbPage}, time_budget_check`);
-        break;
-      }
-    }
-    console.log(`[KB_FILL] candidates_total=${kbAll.length} from ${kbPage + 1} pages`);
-
-    // B3) Location matching — utilise hqCity/hqProvince si disponible, sinon hqLocation
     const locNorm = normText(locQuery);
-    const wantQC = /\b(qc|qu[eé]bec)\b/.test(locNorm);
+    const isMTL = /montr[eé]al|mtl/.test(locNorm);
+    const wantQC = /\b(qc|qu[eé]bec)\b/.test(locNorm) || isMTL;
     const cityNorm = normText(locQuery.split(",")[0]);
 
-    // Determine target province from location query
     let targetProvince = null;
     if (wantQC) targetProvince = "QC";
     else {
@@ -543,94 +514,63 @@ Deno.serve(async (req) => {
       }
     }
 
-    function kbMatchesLocation(e) {
-      // 1. Structured fields first (most reliable)
-      if (e.hqProvince) {
-        if (targetProvince) return e.hqProvince === targetProvince;
-        return true; // No province filter
-      }
-      if (e.hqCity) {
-        const cityKb = normText(e.hqCity);
-        if (cityNorm && cityKb.includes(cityNorm)) return true;
-        // Province aliases
-        if (targetProvince && PROVINCE_ALIASES[targetProvince]) {
-          return PROVINCE_ALIASES[targetProvince].some(a => cityKb.includes(a));
-        }
-        return !targetProvince; // No geo filter → accept
-      }
-      // 2. Fallback: hqLocation free text
-      const eLoc = normText(e.hqLocation || "");
-      if (!eLoc) return !targetProvince; // No location info → accept if no geo filter
-      if (targetProvince === "QC") {
-        const qcAliases = PROVINCE_ALIASES["QC"] || [];
-        return qcAliases.some(a => eLoc.includes(a));
-      }
-      if (cityNorm) return eLoc.includes(cityNorm);
-      return true;
-    }
+    console.log(`[KBV2_FILL] START isMTL=${isMTL} wantQC=${wantQC} targetProvince=${targetProvince}`);
 
-    // B3b) Sector matching via industrySectors + synonyms inference
-    function kbMatchesSectors(e) {
-      if (requiredSectors.length === 0) return { match: true, matchedSectors: [] };
-      
-      // Use structured sectors if available
-      const kbSectors = Array.isArray(e.industrySectors) && e.industrySectors.length > 0
-        ? e.industrySectors
-        : inferSectorsFromKb(e);
-      
+    // Load KBEntityV2 (sorted by confidenceScore desc)
+    let kbV2All = [];
+    let kbV2Page = 0;
+    while (true) {
+      const batch = await base44.asServiceRole.entities.KBEntityV2.list(
+        '-confidenceScore', 500, kbV2Page * 500
+      ).catch(() => []);
+      if (!batch || batch.length === 0) break;
+      kbV2All = kbV2All.concat(batch);
+      if (batch.length < 500) break;
+      kbV2Page++;
+      if (kbV2Page >= 10 || Date.now() - START_TIME > MAX_DURATION_MS * 0.25) break;
+    }
+    console.log(`[KBV2_FILL] loaded=${kbV2All.length}`);
+
+    // Filter by region/location
+    const kbV2Candidates = kbV2All.filter(e => {
+      if (!e.domain || !e.website || !e.name) return false;
+      const domNorm = e.domain.toLowerCase().replace(/^www\./, "");
+      if (existingDomains.has(domNorm)) return false;
+
+      // Region filter using structured hqRegion/hqProvince
+      if (isMTL) return e.hqRegion === "MTL";
+      if (targetProvince === "QC") return ["MTL", "QC_OTHER"].includes(e.hqRegion) || e.hqProvince === "QC";
+      if (targetProvince) return e.hqProvince === targetProvince;
+      return true; // No geo filter
+    });
+
+    console.log(`[KBV2_FILL] candidates_after_location=${kbV2Candidates.length}`);
+
+    // Sector filter + sort: confidenceScore desc + tiny random jitter
+    function kbV2MatchesSectors(e) {
+      if (requiredSectors.length === 0) return { match: true, matchedSectors: Array.isArray(e.industrySectors) ? e.industrySectors : [] };
+      const kbSectors = Array.isArray(e.industrySectors) ? e.industrySectors : [];
       const matchedSectors = kbSectors.filter(s => requiredSectors.includes(s));
-      
-      // Also check synonyms in name/tags/notes for broader matching
-      if (matchedSectors.length === 0) {
-        const text = normText(`${e.name || ""} ${(e.tags || []).join(" ")} ${e.notes || ""} ${(e.keywords || []).join(" ")}`);
-        for (const sector of requiredSectors) {
-          const syns = SECTOR_SYNONYMS[sector] || [];
-          const hit = syns.some(syn => text.includes(normText(syn)));
-          if (hit) matchedSectors.push(sector);
-        }
-      }
-      
       return { match: matchedSectors.length > 0, matchedSectors };
     }
 
-    const kbCandidates = kbAll
-      .filter(e => {
-        if (existingDomains.has((e.domain || "").toLowerCase())) return false;
-        if (!e.domain || !e.website || !e.name) return false;
-        return kbMatchesLocation(e);
-      })
-      .sort(() => Math.random() - 0.5);
+    const kbV2Filtered = kbV2Candidates
+      .map(e => ({ e, score: (e.confidenceScore || 70) + Math.random() * 5 }))
+      .sort((a, b) => b.score - a.score)
+      .map(({ e }) => e);
 
-    console.log(`[KB_FILL] candidates_filtered=${kbCandidates.length}`);
-
-    for (const kb of kbCandidates) {
-      if (Date.now() - START_TIME > MAX_DURATION_MS) { stopReason = "TIME_BUDGET"; break; }
+    for (const kb of kbV2Filtered) {
+      if (Date.now() - START_TIME > MAX_DURATION_MS * 0.5) { stopReason = "TIME_BUDGET"; break; }
       if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
 
-      const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
+      const domNorm = kb.domain.toLowerCase().replace(/^www\./, "");
       if (existingDomains.has(domNorm)) continue;
 
-      // Sector matching avec synonymes
-      const { match: sectorMatch, matchedSectors: foundSectors } = kbMatchesSectors(kb);
-      let matchedSectors = foundSectors;
+      const { match: sectorMatch, matchedSectors } = kbV2MatchesSectors(kb);
+      if (requiredSectors.length > 0 && !sectorMatch) continue;
 
-      if (requiredSectors.length > 0 && !sectorMatch) {
-        console.log(`[KB_FILL] REJECT sector: ${kb.name}`);
-        continue;
-      }
-      
-      if (requiredSectors.length > 0 && matchedSectors.length > 0) {
-        // Soft entityType filter — ne rejette que les cas vraiment hors scope
-        const primarySector = matchedSectors[0];
-        const entityTypeAllowed = isEntityTypeAllowed(kb.entityType || "", primarySector, kb.name);
-        if (!entityTypeAllowed) {
-          console.log(`[KB_FILL] REJECT entityType: ${kb.name} (${kb.entityType}) for sector ${primarySector}`);
-          continue;
-        }
-      }
-
-      // Create prospect — use matched sectors, never entityType as industry
       const industryLabel = matchedSectors[0] || kb.industryLabel || null;
+
       await base44.entities.Prospect.create({
         campaignId,
         ownerUserId: campaign.ownerUserId,
@@ -640,32 +580,138 @@ Deno.serve(async (req) => {
         industry: industryLabel,
         industrySectors: matchedSectors.length > 0 ? matchedSectors : (Array.isArray(kb.industrySectors) ? kb.industrySectors : []),
         industryLabel,
-        location: kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
+        location: { city: kb.hqCity || kb.hqRegion || "", country: kb.hqCountry || "CA" },
         entityType: kb.entityType || "COMPANY",
         status: "NOUVEAU",
-        sourceOrigin: "KB_TOPUP",
+        sourceOrigin: "KB_V2",
         kbEntityId: kb.id,
         serpSnippet: kb.notes || "",
-        sourceUrl: kb.source || "",
+        sourceUrl: kb.sourceUrl || "",
       });
 
       existingDomains.add(domNorm);
       kbAccepted++;
       prospectCount++;
 
-      // B8) Progress updates every 5
       if (kbAccepted % 5 === 0) {
-        progressPct = Math.min(45, Math.round((kbAccepted / Math.max(10, targetCount)) * 45));
-        console.log(`[KB_FILL] ACCEPT #${kbAccepted}, total=${prospectCount}, progress=${progressPct}%`);
+        progressPct = Math.min(40, Math.round((kbAccepted / Math.max(10, targetCount)) * 40));
         await base44.entities.Campaign.update(campaignId, {
           progressPct,
           countProspects: prospectCount,
-          toolUsage: { kbAccepted, webAccepted, braveRequestsUsed },
+          toolUsage: { kbAccepted, webAccepted, braveRequestsUsed, kbV2Used: kbAccepted },
         });
       }
     }
+    console.log(`[KBV2_FILL] END: accepted=${kbAccepted}, total=${prospectCount}`);
 
-    console.log(`[KB_FILL] END: accepted=${kbAccepted}, total=${prospectCount}, stopReason=${stopReason}`);
+    // ════════════════════════════════════════════════════════════════════════════
+    // PHASE 1b: KB_FILL (fallback KBEntity legacy si KBV2 insuffisant)
+    // ════════════════════════════════════════════════════════════════════════════
+    if (prospectCount < targetCount && !stopReason) {
+      console.log(`[KB_FILL] FALLBACK START (KBV2 gave ${kbAccepted}, need ${targetCount - prospectCount} more)`);
+
+      let kbAll = [];
+      let kbPage = 0;
+      while (true) {
+        const batch = await base44.asServiceRole.entities.KBEntity.list(
+          '-updated_date', 500, kbPage * 500
+        ).catch(() => []);
+        if (!batch || batch.length === 0) break;
+        kbAll = kbAll.concat(batch);
+        if (batch.length < 500) break;
+        kbPage++;
+        if (kbPage >= 10 || Date.now() - START_TIME > MAX_DURATION_MS * 0.6) break;
+      }
+      console.log(`[KB_FILL] legacy loaded=${kbAll.length}`);
+
+      function kbMatchesLocation(e) {
+        if (e.hqProvince) {
+          if (targetProvince) return e.hqProvince === targetProvince;
+          return true;
+        }
+        if (e.hqCity) {
+          const cityKb = normText(e.hqCity);
+          if (cityNorm && cityKb.includes(cityNorm)) return true;
+          if (targetProvince && PROVINCE_ALIASES[targetProvince]) {
+            return PROVINCE_ALIASES[targetProvince].some(a => cityKb.includes(a));
+          }
+          return !targetProvince;
+        }
+        const eLoc = normText(e.hqLocation || "");
+        if (!eLoc) return !targetProvince;
+        if (targetProvince === "QC") {
+          return (PROVINCE_ALIASES["QC"] || []).some(a => eLoc.includes(a));
+        }
+        if (cityNorm) return eLoc.includes(cityNorm);
+        return true;
+      }
+
+      function kbMatchesSectors(e) {
+        if (requiredSectors.length === 0) return { match: true, matchedSectors: [] };
+        const kbSectors = Array.isArray(e.industrySectors) && e.industrySectors.length > 0
+          ? e.industrySectors
+          : inferSectorsFromKb(e);
+        const matchedSectors = kbSectors.filter(s => requiredSectors.includes(s));
+        if (matchedSectors.length === 0) {
+          const text = normText(`${e.name || ""} ${(e.tags || []).join(" ")} ${e.notes || ""}`);
+          for (const sector of requiredSectors) {
+            const syns = SECTOR_SYNONYMS[sector] || [];
+            if (syns.some(syn => text.includes(normText(syn)))) matchedSectors.push(sector);
+          }
+        }
+        return { match: matchedSectors.length > 0, matchedSectors };
+      }
+
+      const kbCandidates = kbAll
+        .filter(e => {
+          if (existingDomains.has((e.domain || "").toLowerCase())) return false;
+          if (!e.domain || !e.website || !e.name) return false;
+          return kbMatchesLocation(e);
+        })
+        .sort(() => Math.random() - 0.5);
+
+      let legacyKbAccepted = 0;
+      for (const kb of kbCandidates) {
+        if (Date.now() - START_TIME > MAX_DURATION_MS * 0.65) { stopReason = "TIME_BUDGET"; break; }
+        if (prospectCount >= targetCount) { stopReason = "TARGET_REACHED"; break; }
+
+        const domNorm = (kb.domain || "").toLowerCase().replace(/^www\./, "");
+        if (existingDomains.has(domNorm)) continue;
+
+        const { match: sectorMatch, matchedSectors } = kbMatchesSectors(kb);
+        if (requiredSectors.length > 0 && !sectorMatch) continue;
+
+        if (requiredSectors.length > 0 && matchedSectors.length > 0) {
+          const entityTypeAllowed = isEntityTypeAllowed(kb.entityType || "", matchedSectors[0], kb.name);
+          if (!entityTypeAllowed) continue;
+        }
+
+        const industryLabel = matchedSectors[0] || kb.industryLabel || null;
+        await base44.entities.Prospect.create({
+          campaignId,
+          ownerUserId: campaign.ownerUserId,
+          companyName: kb.name,
+          website: kb.website || `https://${kb.domain}`,
+          domain: domNorm,
+          industry: industryLabel,
+          industrySectors: matchedSectors.length > 0 ? matchedSectors : (Array.isArray(kb.industrySectors) ? kb.industrySectors : []),
+          industryLabel,
+          location: kb.hqLocation ? { city: kb.hqLocation, country: "CA" } : { country: "CA" },
+          entityType: kb.entityType || "COMPANY",
+          status: "NOUVEAU",
+          sourceOrigin: "KB_TOPUP",
+          kbEntityId: kb.id,
+          serpSnippet: kb.notes || "",
+          sourceUrl: kb.source || "",
+        });
+
+        existingDomains.add(domNorm);
+        kbAccepted++;
+        legacyKbAccepted++;
+        prospectCount++;
+      }
+      console.log(`[KB_FILL] END: legacy_accepted=${legacyKbAccepted}, total=${prospectCount}`);
+    }
 
     // ════════════════════════════════════════════════════════════════════════════
     // PHASE 2: WEB_FILL (fallback)
