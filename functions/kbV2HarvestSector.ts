@@ -383,16 +383,21 @@ Deno.serve(async (req) => {
   console.log(`[HARVEST] START sector=${sector} target=${target} minScore=${minScore} dryRun=${dryRun}`);
 
   // A) Load existing KBEntityV2 to count current and build dedup set
+  console.log(`[HARVEST] Loading KBEntityV2...`);
   let kbAll = [];
   let kbPage = 0;
   while (true) {
-    const batch = await base44.asServiceRole.entities.KBEntityV2.list('-created_date', 500, kbPage * 500).catch(() => []);
+    const batch = await base44.asServiceRole.entities.KBEntityV2.list('-created_date', 500, kbPage * 500).catch((e) => {
+      console.log(`[HARVEST] KB load error page=${kbPage}: ${e.message}`);
+      return [];
+    });
     if (!batch || batch.length === 0) break;
     kbAll = kbAll.concat(batch);
     if (batch.length < 500) break;
     kbPage++;
     if (kbPage >= 20) break;
   }
+  console.log(`[HARVEST] KBEntityV2 loaded: ${kbAll.length}`);
 
   const kbDomainSet = new Set(kbAll.map(e => (e.domain || "").toLowerCase().replace(/^www\./, "")));
 
