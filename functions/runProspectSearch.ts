@@ -44,6 +44,27 @@ const SECTOR_SYNONYMS = {
     "entrepôt", "warehouse", "courrier", "courier", "distribution", "supply chain", "transitaire"],
 };
 
+// All cities in the Greater Montreal area → hqRegion=MTL
+const MTL_CITIES = new Set([
+  "montreal","laval","longueuil","brossard","terrebonne","repentigny","boucherville",
+  "dorval","pointe-claire","kirkland","beaconsfield","saint-lambert","westmount",
+  "mont-royal","cote-saint-luc","verdun","anjou","outremont","pierrefonds","lasalle",
+  "saint-laurent","saint-jerome","blainville","boisbriand","mascouche","mirabel",
+  "la-prairie","chateauguay","candiac","laprairie","saint-jean-sur-richelieu",
+  "vaudreuil-dorion","les-coteaux","sainte-catherine","sainte-julie","varennes",
+  "montreal-est","montreal-nord","montreal-ouest","lachine","rosemont","villeray",
+  "hochelaga","riviere-des-prairies","saint-leonard","ahuntsic","mtl",
+]);
+
+function isMtlQuery(locationQuery) {
+  const norm = normText(locationQuery);
+  if (MTL_CITIES.has(norm)) return true;
+  for (const token of norm.split(/[,\s]+/)) {
+    if (MTL_CITIES.has(token)) return true;
+  }
+  return false;
+}
+
 // Mapping province pour filtrage KB
 const PROVINCE_ALIASES = {
   "QC": ["québec", "quebec", "qc", "montréal", "montreal", "laval", "longueuil", "gatineau", "sherbrooke", "lévis", "levis", "saguenay", "brossard"],
