@@ -4,6 +4,30 @@ function normText(s) {
   return (s || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
 }
 
+// All cities in the Greater Montreal area → hqRegion=MTL
+const MTL_CITIES = new Set([
+  "montreal","laval","longueuil","brossard","terrebonne","repentigny","boucherville",
+  "dorval","pointe-claire","kirkland","beaconsfield","saint-lambert","westmount",
+  "mont-royal","cote-saint-luc","verdun","anjou","outremont","pierrefonds","lasalle",
+  "saint-laurent","saint-jerome","blainville","boisbriand","mascouche","mirabel",
+  "la-prairie","chateauguay","candiac","laprairie","saint-jean-sur-richelieu",
+  "vaudreuil-dorion","les-coteaux","sainte-catherine","sainte-julie","varennes",
+  "brossard","montreal-est","montreal-nord","montreal-ouest","lachine","mercier",
+  "rosemont","plateau","villeray","hochelaga","riviere-des-prairies","saint-leonard",
+  "bordeaux","cartierville","ahuntsic","montrial","mtl",
+]);
+
+function isMtlQuery(locationQuery) {
+  const norm = normText(locationQuery);
+  // Direct match against city list
+  if (MTL_CITIES.has(norm)) return true;
+  // Also match if any token matches (e.g. "Laval, QC")
+  for (const token of norm.split(/[,\s]+/)) {
+    if (MTL_CITIES.has(token)) return true;
+  }
+  return false;
+}
+
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
@@ -15,8 +39,8 @@ Deno.serve(async (req) => {
   const { locationQuery = "Montréal", industrySectors = [] } = body;
 
   const locNorm = normText(locationQuery);
-  const isMTL = /montr[eé]al|mtl/.test(locNorm);
-  const isQC = /qu[eé]bec|qc/.test(locNorm);
+  const isMTL = isMtlQuery(locationQuery);
+  const isQC = /qu[eé]bec|qc/.test(locNorm) && !isMTL;
 
   // Load all KBEntityV2
   let all = [];
