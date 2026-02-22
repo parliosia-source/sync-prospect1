@@ -21,39 +21,65 @@ const QC_CITIES = new Set([
   "shawinigan","victoriaville","rouyn-noranda","val-d-or","sept-iles","baie-comeau",
 ]);
 
+// Parse "Montréal, Québec, Canada" → { city, province, country }
+function parseHqLocation(hqCity, hqProvince, hqCountry) {
+  // hqCity may be the full "City, Province, Country" string (import artifact)
+  // Detect by checking if it contains commas
+  let city = hqCity || "";
+  let province = hqProvince || "";
+  let country = hqCountry || "CA";
+
+  if (city.includes(",")) {
+    const parts = city.split(",").map(s => s.trim());
+    city = parts[0] || "";
+    province = parts[1] || province;
+    country = parts[2] || country;
+  }
+
+  return { city: normText(city), province: normText(province), country: country.trim().toUpperCase() };
+}
+
 function resolveRegion(hqCity, hqProvince, hqCountry, hqRegion) {
-  // Only fix entries where hqRegion is NOT a valid enum value
   const VALID = new Set(["MTL", "GM", "QC_OTHER", "OUTSIDE_QC", "UNKNOWN"]);
-  if (VALID.has(hqRegion)) return null; // already correct, skip
+  if (VALID.has(hqRegion)) return null; // already correct
 
-  const cityNorm = normText(hqCity || "");
-  const provNorm = normText(hqProvince || "");
-  const country = (hqCountry || "CA").toUpperCase();
+  const { city, province, country } = parseHqLocation(hqCity, hqProvince, hqCountry);
 
-  if (country !== "CA") return { hqRegion: "OUTSIDE_QC", hqProvince: hqProvince || "", hqCountry: country };
+  if (country !== "CA" && country !== "") return { hqRegion: "OUTSIDE_QC", hqProvince: hqProvince || "" };
 
-  // Province detection from raw hqProvince (may be "Québec" etc.)
-  let province = hqProvince;
-  if (/qu[eé]bec|^qc$/.test(provNorm)) province = "QC";
-  else if (/ontario|^on$/.test(provNorm)) province = "ON";
-  else if (/british columbia|^bc$/.test(provNorm)) province = "BC";
-  else if (/alberta|^ab$/.test(provNorm)) province = "AB";
-  else if (/nova scotia|^ns$/.test(provNorm)) province = "NS";
-  else if (/new brunswick|^nb$/.test(provNorm)) province = "NB";
-  else if (/manitoba|^mb$/.test(provNorm)) province = "MB";
-  else if (/saskatchewan|^sk$/.test(provNorm)) province = "SK";
+  // Province normalization
+  let prov = "UNKNOWN";
+  if (/qu[eé]bec|^qc$/.test(province)) prov = "QC";
+  else if (/ontario|^on$/.test(province)) prov = "ON";
+  else if (/british columbia|colombie|^bc$/.test(province)) prov = "BC";
+  else if (/alberta|^ab$/.test(province)) prov = "AB";
+  else if (/nova scotia|nouvelle-ecosse|^ns$/.test(province)) prov = "NS";
+  else if (/new brunswick|nouveau-brunswick|^nb$/.test(province)) prov = "NB";
+  else if (/manitoba|^mb$/.test(province)) prov = "MB";
+  else if (/saskatchewan|^sk$/.test(province)) prov = "SK";
+  else if (/canada/.test(province) && !province) prov = "QC"; // default to QC if ambiguous
 
-  if (province !== "QC") return { hqRegion: "OUTSIDE_QC", hqProvince: province || hqProvince || "" };
+  if (prov !== "QC" && prov !== "UNKNOWN") return { hqRegion: "OUTSIDE_QC", hqProvince: prov };
+  if (prov === "UNKNOWN") {
+    // Last resort: check city against MTL set
+    if (MTL_CITIES.has(city)) return { hqRegion: "MTL", hqProvince: "QC" };
+    return { hqRegion: "QC_OTHER", hqProvince: "QC" };
+  }
 
-  // QC → MTL vs QC_OTHER
-  if (MTL_CITIES.has(cityNorm)) return { hqRegion: "MTL", hqProvince: "QC" };
-
-  // Check if city token matches any MTL city
-  for (const token of cityNorm.split(/[\s\-,]+/)) {
+  // QC → MTL or QC_OTHER
+  if (MTL_CITIES.has(city)) return { hqRegion: "MTL", hqProvince: "QC" };
+  for (const token of city.split(/[\s\-]+/)) {
     if (MTL_CITIES.has(token)) return { hqRegion: "MTL", hqProvince: "QC" };
   }
 
-  return { hqRegion: "QC_OTHER", hqProvince: "QC" };
+  // Check if raw hqProvince or city string mentions a non-QC city clearly
+  if (/toronto|ottawa|hamilton|london|kingston|windsor/.test(city)) return { hqRegion: "OUTSIDE_QC", hqProvince: "ON" };
+  if (/vancouver|victoria|kelowna/.test(city)) return { hqRegion: "OUTSIDE_QC", hqProvince: "BC" };
+  if (/calgary|edmonton/.test(city)) return { hqRegion: "OUTSIDE_QC", hqProvince: "AB" };
+
+  // Extract clean city for storage
+  const cleanCity = (hqCity || "").includes(",") ? (hqCity || "").split(",")[0].trim() : (hqCity || "");
+  return { hqRegion: "QC_OTHER", hqProvince: "QC", hqCity: cleanCity };
 }
 
 Deno.serve(async (req) => {
