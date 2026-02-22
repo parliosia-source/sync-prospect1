@@ -350,7 +350,8 @@ async function braveSearch(query, count = 20, offset = 0) {
     return { results: data.web?.results || [], rateLimited: false, httpStatus: res.status };
   } catch (e) {
     clearTimeout(t);
-    return { results: [], rateLimited: e.name === "AbortError" };
+    console.log(`[BRAVE] exception: ${e.message}`);
+    return { results: [], rateLimited: e.name === "AbortError", httpStatus: 0 };
   }
 }
 
