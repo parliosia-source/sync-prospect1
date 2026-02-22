@@ -434,9 +434,9 @@ Deno.serve(async (req) => {
     if (fetched >= maxWeb) break;
     if (inserted >= need) break;
     if (rateLimited) break;
-    if (batchConsecLow >= 5) { console.log(`[HARVEST] 5 low batches — stopping`); break; }
 
     const batchInsertedBefore = inserted;
+    console.log(`[HARVEST] query: ${query.slice(0, 80)}`);
 
     for (let pageIdx = 0; pageIdx < 5; pageIdx++) {
       if (fetched >= maxWeb) break;
