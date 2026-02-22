@@ -342,6 +342,7 @@ async function braveSearch(query, count = 20, offset = 0) {
     if (rst !== -1) braveRL.reset = rst;
 
     if (res.status === 429) { braveRL.count429++; return { results: [], rateLimited: true, httpStatus: 429 }; }
+    if (res.status === 402) { return { results: [], rateLimited: true, httpStatus: 402 }; } // quota exceeded
     if (!res.ok) {
       console.log(`[BRAVE] non-ok status=${res.status}`);
       return { results: [], rateLimited: false, httpStatus: res.status };
