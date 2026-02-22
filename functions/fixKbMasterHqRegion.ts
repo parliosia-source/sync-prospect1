@@ -143,8 +143,20 @@ Deno.serve(async (req) => {
           await base44.asServiceRole.entities.KBEntityV2.update(e.id, fix);
           fixed++;
         } catch (err) {
-          errors++;
-          console.log(`[FIX_REGION] ERR ${e.domain}: ${err.message}`);
+          if (err.message?.includes("429") || err.message?.includes("Rate limit")) {
+            // Back off and retry once
+            await new Promise(r => setTimeout(r, 6000));
+            try {
+              await base44.asServiceRole.entities.KBEntityV2.update(e.id, fix);
+              fixed++;
+            } catch (_) {
+              errors++;
+              console.log(`[FIX_REGION] ERR (retry) ${e.domain}: ${err.message}`);
+            }
+          } else {
+            errors++;
+            console.log(`[FIX_REGION] ERR ${e.domain}: ${err.message}`);
+          }
         }
       } else {
         fixed++;
