@@ -125,13 +125,18 @@ Deno.serve(async (req) => {
   }
 
   const body = await req.json().catch(() => ({}));
-  const { fileUrl, dryRun = false } = body;
+  const {
+    fileUrl,
+    dryRun = false,
+    offset = 0,   // row offset to start from (0-indexed, after header)
+    limit = 9999, // max rows to process
+  } = body;
 
   if (!fileUrl) {
     return Response.json({ error: "fileUrl required (upload CSV first and pass the URL)" }, { status: 400 });
   }
 
-  console.log(`[IMPORT_KBV2] START dryRun=${dryRun}, url=${fileUrl}`);
+  console.log(`[IMPORT_KBV2] START dryRun=${dryRun}, offset=${offset}, limit=${limit}, url=${fileUrl}`);
 
   // Fetch CSV
   const csvRes = await fetch(fileUrl);
