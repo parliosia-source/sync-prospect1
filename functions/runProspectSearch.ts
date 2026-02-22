@@ -523,7 +523,7 @@ Deno.serve(async (req) => {
     // PHASE 1a: KB_V2_FILL (KBEntityV2 — prioritaire)
     // ════════════════════════════════════════════════════════════════════════════
     const locNorm = normText(locQuery);
-    const isMTL = /montr[eé]al|mtl/.test(locNorm);
+    const isMTL = isMtlQuery(locQuery);
     const wantQC = /\b(qc|qu[eé]bec)\b/.test(locNorm) || isMTL;
     const cityNorm = normText(locQuery.split(",")[0]);
 
