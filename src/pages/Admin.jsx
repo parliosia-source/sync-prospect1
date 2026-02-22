@@ -350,6 +350,113 @@ export default function Admin() {
             )}
           </div>
 
+          {/* Coverage by Sector */}
+          <div className="bg-white rounded-xl border p-5">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="font-semibold text-slate-800">Couverture KBEntityV2 par secteur (Grand Montréal)</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Objectif: 150 entrées/secteur dans le Grand Montréal (hqRegion MTL ou GM)</p>
+              </div>
+              <Button onClick={handleCoverage} disabled={maintenanceLoading} size="sm" variant="outline" className="gap-2 text-xs">
+                <RefreshCw className={`w-3.5 h-3.5 ${maintenanceLoading ? "animate-spin" : ""}`} />
+                Charger
+              </Button>
+            </div>
+            {coverageStats && (
+              <div className="space-y-2">
+                <div className="text-xs text-slate-500 mb-2">Total: {coverageStats.totalKBEntityV2} | GM: {coverageStats.totalGM} | Harvest: {coverageStats.harvestEntries}</div>
+                {(coverageStats.coverage || []).map(c => (
+                  <div key={c.sector} className="flex items-center gap-3 text-xs">
+                    <span className="w-40 truncate font-medium text-slate-700">{c.sector}</span>
+                    <div className="flex-1 bg-slate-100 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full transition-all ${c.pctCoverage >= 100 ? "bg-green-500" : c.pctCoverage >= 50 ? "bg-yellow-400" : "bg-red-400"}`}
+                        style={{ width: `${Math.min(100, c.pctCoverage)}%` }}
+                      />
+                    </div>
+                    <span className={`w-16 text-right font-mono ${c.gapTo150 === 0 ? "text-green-600" : "text-red-600"}`}>
+                      {c.currentCountGM}/{coverageStats.target}
+                    </span>
+                    <span className="text-slate-400 w-16 text-right">gap: {c.gapTo150}</span>
+                    <span className="text-slate-400 w-10 text-right">Ø{c.avgConfidence}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Harvest Sector */}
+          <div className="bg-white rounded-xl border p-5">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="font-semibold text-slate-800">Harvest secteur → KBEntityV2</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Enrichit KBEntityV2 via Brave jusqu'à 150 entrées/secteur GM. Score minimum: 75.</p>
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={() => handleHarvestSector(true)} disabled={harvestLoading} variant="outline" size="sm" className="gap-2 text-xs">
+                  <RefreshCw className={`w-3.5 h-3.5 ${harvestLoading ? "animate-spin" : ""}`} />
+                  Dry run
+                </Button>
+                <Button onClick={() => handleHarvestSector(false)} disabled={harvestLoading} size="sm" className="gap-2 bg-orange-600 hover:bg-orange-700 text-xs">
+                  <Zap className="w-3.5 h-3.5" />
+                  Harvester
+                </Button>
+              </div>
+            </div>
+            <div className="mb-3">
+              <label className="text-xs text-slate-500 block mb-1">Secteur cible</label>
+              <select
+                className="w-full border rounded-lg px-3 py-1.5 text-sm"
+                value={harvestSector}
+                onChange={e => setHarvestSector(e.target.value)}
+              >
+                {["Technologie","Finance & Assurance","Santé & Pharma","Gouvernement & Public",
+                  "Éducation & Formation","Associations & OBNL","Immobilier","Droit & Comptabilité",
+                  "Industrie & Manufacture","Commerce de détail","Transport & Logistique"].map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+            {harvestResult && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 md:grid-cols-5 gap-2 text-xs">
+                  <div className="bg-slate-50 rounded p-2 text-center"><div className="font-bold text-slate-800">{harvestResult.currentBefore}</div><div className="text-slate-500">Avant</div></div>
+                  <div className="bg-green-50 rounded p-2 text-center"><div className="font-bold text-green-700">{harvestResult.inserted}</div><div className="text-slate-500">Insérés</div></div>
+                  <div className="bg-red-50 rounded p-2 text-center"><div className="font-bold text-red-600">{harvestResult.rejected}</div><div className="text-slate-500">Rejetés</div></div>
+                  <div className="bg-blue-50 rounded p-2 text-center"><div className="font-bold text-blue-600">{harvestResult.fetched}</div><div className="text-slate-500">Fetchés</div></div>
+                  <div className={`rounded p-2 text-center ${harvestResult.status === "DONE" ? "bg-green-100" : "bg-yellow-50"}`}>
+                    <div className="font-bold text-slate-700 text-xs">{harvestResult.status}</div><div className="text-slate-500">Statut</div>
+                  </div>
+                </div>
+                {harvestResult.dryRun && <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-700">⚠ Dry run — aucun changement en base</div>}
+                {harvestResult.topInserted?.length > 0 && (
+                  <div className="pt-2 border-t">
+                    <p className="text-xs font-medium text-slate-600 mb-1">Insérés (top 10)</p>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {harvestResult.topInserted.slice(0, 10).map((e, i) => (
+                        <div key={i} className="text-xs bg-green-50 rounded px-2 py-1 flex gap-2">
+                          <span className="font-mono text-slate-600 w-36 truncate">{e.domain}</span>
+                          <span className="text-green-700 truncate flex-1">{e.name}</span>
+                          <span className="text-slate-400 flex-shrink-0">{e.city} score:{e.score}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {harvestResult.topRejections?.length > 0 && (
+                  <div className="pt-2 border-t">
+                    <p className="text-xs font-medium text-slate-600 mb-1">Raisons rejet</p>
+                    <div className="flex flex-wrap gap-1">
+                      {harvestResult.topRejections.slice(0, 10).map((r, i) => (
+                        <span key={i} className="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded">{r.reason}: {r.count}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Debug Search */}
           <div className="bg-white rounded-xl border p-5">
             <div className="flex items-start justify-between mb-4">
