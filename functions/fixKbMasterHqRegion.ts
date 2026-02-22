@@ -118,8 +118,9 @@ Deno.serve(async (req) => {
   console.log(`[FIX_REGION] loaded=${all.length}`);
 
   const VALID_REGIONS = new Set(["MTL", "GM", "QC_OTHER", "OUTSIDE_QC", "UNKNOWN"]);
-  const toFix = all.filter(e => !VALID_REGIONS.has(e.hqRegion));
-  console.log(`[FIX_REGION] toFix=${toFix.length}`);
+  const allToFix = all.filter(e => !VALID_REGIONS.has(e.hqRegion));
+  const toFix = allToFix.slice(offset, offset + batchLimit);
+  console.log(`[FIX_REGION] totalToFix=${allToFix.length} batchToProcess=${toFix.length} offset=${offset}`);
 
   let fixed = 0, skipped = 0, errors = 0;
   const samples = [];
