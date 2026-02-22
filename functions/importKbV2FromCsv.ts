@@ -233,13 +233,22 @@ Deno.serve(async (req) => {
 
   console.log(`[IMPORT_KBV2] END: created=${createdCount}, updated=${updatedCount}, errors=${errorCount}, skipped=${skippedCount}`);
 
+  const nextOffset = offset + rows.length;
+  const isComplete = nextOffset >= allRows.length;
+
   return Response.json({
     dryRun,
-    totalRowsParsed: rows.length,
+    offset,
+    limit,
+    totalRowsParsed: allRows.length,
+    processedCount: rows.length,
     createdCount,
     updatedCount,
     errorCount,
     skippedCount,
+    nextOffset,
+    isComplete,
+    elapsedMs: Date.now() - Date.now(), // placeholder — not tracked here; use importKbV2RunAll for timing
     samples,
     errors: errors.slice(0, 20),
   });
