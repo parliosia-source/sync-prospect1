@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
   if (!user || user.role !== "admin") return Response.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
-  const { dryRun = true, seedBatchId = "KB_MASTER_2026-02-22" } = body;
+  const { dryRun = true, offset = 0, batchLimit = 150 } = body;
 
   console.log(`[FIX_REGION] START dryRun=${dryRun} seedBatchId=${seedBatchId}`);
 
