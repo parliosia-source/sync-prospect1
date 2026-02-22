@@ -380,7 +380,9 @@ Deno.serve(async (req) => {
   const START = Date.now();
   const MAX_MS = 170 * 1000;
 
-  console.log(`[HARVEST] ENTRY sector=${sector} target=${target} minScore=${minScore} dryRun=${dryRun} BRAVE_KEY=${BRAVE_KEY ? "SET" : "MISSING"}`);
+  // Log immediately before any async
+  const entryLog = `ENTRY sector=${sector} target=${target} minScore=${minScore} dryRun=${dryRun} BRAVE=${BRAVE_KEY ? BRAVE_KEY.slice(0,6)+"..." : "MISSING"}`;
+  console.log(`[HARVEST] ${entryLog}`);
 
   // A) Load existing KBEntityV2 to count current and build dedup set
   console.log(`[HARVEST] Loading KBEntityV2...`);
