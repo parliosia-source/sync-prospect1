@@ -569,27 +569,37 @@ Deno.serve(async (req) => {
       return true;
     }
 
-    // B3b) Sector matching via industrySectors + synonyms inference
-    function kbMatchesSectors(e) {
+    // B3b) Sector matching via industrySectors + lazy backfill si manquant
+    async function kbMatchesSectors(e) {
       if (requiredSectors.length === 0) return { match: true, matchedSectors: [] };
-      
-      // Use structured sectors if available
-      const kbSectors = Array.isArray(e.industrySectors) && e.industrySectors.length > 0
+
+      let kbSectors = Array.isArray(e.industrySectors) && e.industrySectors.length > 0
         ? e.industrySectors
-        : inferSectorsFromKb(e);
-      
-      const matchedSectors = kbSectors.filter(s => requiredSectors.includes(s));
-      
-      // Also check synonyms in name/tags/notes for broader matching
-      if (matchedSectors.length === 0) {
-        const text = normText(`${e.name || ""} ${(e.tags || []).join(" ")} ${e.notes || ""} ${(e.keywords || []).join(" ")}`);
-        for (const sector of requiredSectors) {
-          const syns = SECTOR_SYNONYMS[sector] || [];
-          const hit = syns.some(syn => text.includes(normText(syn)));
-          if (hit) matchedSectors.push(sector);
+        : null;
+
+      // Lazy backfill: infer and persist if missing
+      if (!kbSectors) {
+        const inferred = inferSectorsFromKb(e);
+        if (inferred.length > 0) {
+          kbSectors = inferred;
+          // Fire-and-forget: update KB entity in background
+          base44.asServiceRole.entities.KBEntity.update(e.id, {
+            industrySectors: inferred,
+            industryLabel: inferred[0],
+          }).catch(() => {});
+        } else {
+          // Last resort: synonym scan across requiredSectors
+          const text = normText(`${e.name || ""} ${(e.tags || []).join(" ")} ${e.notes || ""}`);
+          const synonymHits = [];
+          for (const sector of requiredSectors) {
+            const syns = SECTOR_SYNONYMS[sector] || [];
+            if (syns.some(syn => text.includes(normText(syn)))) synonymHits.push(sector);
+          }
+          kbSectors = synonymHits;
         }
       }
-      
+
+      const matchedSectors = kbSectors.filter(s => requiredSectors.includes(s));
       return { match: matchedSectors.length > 0, matchedSectors };
     }
 
