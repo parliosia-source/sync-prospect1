@@ -395,36 +395,45 @@ function buildQueryVariants(campaign, loc) {
   const queries = [];
 
   // A — DIRECT COMPANIES/ORGS
-  const companyTermsFR = ["entreprises", "sociétés", "compagnies", "organisations", "cabinet", "firmes", "manufacturier"];
-  const companyTermsEN = ["companies", "firms", "manufacturers", "organizations"];
+  const companyTermsFR = ["entreprises", "sociétés", "compagnies", "organisations", "cabinet", "firmes"];
+  const companyTermsEN = ["companies", "firms", "organizations"];
 
   for (const l of locAll) {
-    for (const term of companyTermsFR) {
+    for (const term of companyTermsFR.slice(0, 3)) {
       queries.push(`${term} ${sectorsFR} ${l} ${kws} ${EXCL}`);
-      if (sectors.length === 1) queries.push(`${term} ${sectors[0]} ${l} ${EXCL}`);
     }
-    for (const term of companyTermsEN) {
+    for (const term of companyTermsEN.slice(0, 2)) {
       queries.push(`${term} ${sectorsFR} ${l} ${kws} ${EXCL}`);
-      if (sectors.length === 1) queries.push(`${term} ${sectors[0]} ${l} ${EXCL}`);
     }
   }
 
-  // B — INDUSTRY CLUSTERS
-  for (const l of locAll) {
-    queries.push(`grappe ${sectorsFR} ${l} ${EXCL}`);
+  // B — SYNONYM-ENRICHED QUERIES: use top synonyms per sector
+  for (const sector of sectors) {
+    const sectorTerms = getSectorSearchTerms(sector);
+    // Pick 3 representative synonyms and build queries with them
+    const synGroups = [sectorTerms.slice(0, 3), sectorTerms.slice(3, 6)].filter(g => g.length > 0);
+    for (const group of synGroups) {
+      const synStr = group.map(s => `"${s}"`).join(" OR ");
+      const locQ2 = locAll[0];
+      queries.push(`entreprises (${synStr}) ${locQ2} ${EXCL}`);
+      queries.push(`companies (${synStr}) ${locQ2} ${EXCL}`);
+    }
+    // Also query with just sector name + city
+    queries.push(`${sector} entreprises ${locAll[0]} ${EXCL}`);
+    queries.push(`${sector} companies ${locAll[0]} ${EXCL}`);
+  }
+
+  // C — INDUSTRY CLUSTERS
+  for (const l of locAll.slice(0, 2)) {
+    queries.push(`grappe industrielle ${sectorsFR} ${l} ${EXCL}`);
     queries.push(`ecosystem ${sectorsFR} ${l} ${EXCL}`);
-    queries.push(`cluster ${sectorsFR} ${l} ${EXCL}`);
-    if (sectors.length === 1) queries.push(`${sectors[0]} entreprises ${l} ${EXCL}`);
   }
 
-  // C — ASSOCIATIONS
-  for (const l of locAll) {
+  // D — ASSOCIATIONS
+  for (const l of locAll.slice(0, 2)) {
     queries.push(`association ${sectorsFR} ${l} membres ${EXCL}`);
-    queries.push(`${sectorsFR} association ${l} members ${EXCL}`);
-    queries.push(`${sectorsFR} chamber ${l} members ${EXCL}`);
     if (sectors.length === 1) {
       queries.push(`association ${sectors[0]} ${l} membres ${EXCL}`);
-      queries.push(`chamber ${sectors[0]} Quebec members ${EXCL}`);
     }
   }
 
