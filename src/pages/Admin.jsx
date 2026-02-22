@@ -332,8 +332,12 @@ export default function Admin() {
                     <div className="text-xs text-slate-500">Scannées</div>
                   </div>
                   <div className="bg-green-50 rounded-lg p-3">
-                    <div className="text-xl font-bold text-green-600">{backfillStats.updated}</div>
-                    <div className="text-xs text-slate-500">Mises à jour</div>
+                    <div className="text-xl font-bold text-green-600">{backfillStats.updatedSectors ?? backfillStats.updated}</div>
+                    <div className="text-xs text-slate-500">Secteurs détectés</div>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3">
+                    <div className="text-xl font-bold text-blue-600">{backfillStats.updatedLocation ?? "—"}</div>
+                    <div className="text-xs text-slate-500">Localisation parsée</div>
                   </div>
                   <div className="bg-yellow-50 rounded-lg p-3">
                     <div className="text-xl font-bold text-yellow-600">{backfillStats.skippedAlreadyFilled}</div>
