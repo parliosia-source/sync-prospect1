@@ -26,6 +26,8 @@ export default function Admin() {
   const [kbStats, setKbStats] = useState(null);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [backfillStats, setBackfillStats] = useState(null);
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillProgress, setBackfillProgress] = useState(null); // { pass, scanned, updatedSectors, updatedLocation, updatedKeywords }
 
   useEffect(() => {
     base44.auth.me().then(u => {
