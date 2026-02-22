@@ -56,15 +56,15 @@ Deno.serve(async (req) => {
 
   const totalKB = all.length;
 
-  // Region filter
+  // Region filter — GM includes MTL + GM hqRegion
   let afterRegion = [];
   const regionRejects = [];
   for (const e of all) {
     let pass = true;
     let reason = null;
-    if (isMTL && e.hqRegion !== "MTL") {
-      pass = false; reason = `hqRegion=${e.hqRegion} (wanted MTL)`;
-    } else if (isQC && !["MTL", "QC_OTHER"].includes(e.hqRegion) && e.hqProvince !== "QC") {
+    if (isMTL && !["MTL", "GM"].includes(e.hqRegion)) {
+      pass = false; reason = `hqRegion=${e.hqRegion} (wanted MTL or GM)`;
+    } else if (isQC && !["MTL", "QC_OTHER", "GM"].includes(e.hqRegion) && e.hqProvince !== "QC") {
       pass = false; reason = `hqRegion=${e.hqRegion}, hqProvince=${e.hqProvince} (wanted QC)`;
     }
     if (pass) afterRegion.push(e);
