@@ -520,23 +520,75 @@ Deno.serve(async (req) => {
     }
     console.log(`[KB_FILL] candidates_total=${kbAll.length} from ${kbPage + 1} pages`);
 
-    // B3) Location matching (Quebec/Montréal robust)
+    // B3) Location matching — utilise hqCity/hqProvince si disponible, sinon hqLocation
     const locNorm = normText(locQuery);
-    const wantQC = /\b(qc|quebec)\b/.test(locNorm);
+    const wantQC = /\b(qc|qu[eé]bec)\b/.test(locNorm);
     const cityNorm = normText(locQuery.split(",")[0]);
+
+    // Determine target province from location query
+    let targetProvince = null;
+    if (wantQC) targetProvince = "QC";
+    else {
+      for (const [prov, aliases] of Object.entries(PROVINCE_ALIASES)) {
+        if (aliases.some(a => locNorm.includes(a))) { targetProvince = prov; break; }
+      }
+    }
+
+    function kbMatchesLocation(e) {
+      // 1. Structured fields first (most reliable)
+      if (e.hqProvince) {
+        if (targetProvince) return e.hqProvince === targetProvince;
+        return true; // No province filter
+      }
+      if (e.hqCity) {
+        const cityKb = normText(e.hqCity);
+        if (cityNorm && cityKb.includes(cityNorm)) return true;
+        // Province aliases
+        if (targetProvince && PROVINCE_ALIASES[targetProvince]) {
+          return PROVINCE_ALIASES[targetProvince].some(a => cityKb.includes(a));
+        }
+        return !targetProvince; // No geo filter → accept
+      }
+      // 2. Fallback: hqLocation free text
+      const eLoc = normText(e.hqLocation || "");
+      if (!eLoc) return !targetProvince; // No location info → accept if no geo filter
+      if (targetProvince === "QC") {
+        const qcAliases = PROVINCE_ALIASES["QC"] || [];
+        return qcAliases.some(a => eLoc.includes(a));
+      }
+      if (cityNorm) return eLoc.includes(cityNorm);
+      return true;
+    }
+
+    // B3b) Sector matching via industrySectors + synonyms inference
+    function kbMatchesSectors(e) {
+      if (requiredSectors.length === 0) return { match: true, matchedSectors: [] };
+      
+      // Use structured sectors if available
+      const kbSectors = Array.isArray(e.industrySectors) && e.industrySectors.length > 0
+        ? e.industrySectors
+        : inferSectorsFromKb(e);
+      
+      const matchedSectors = kbSectors.filter(s => requiredSectors.includes(s));
+      
+      // Also check synonyms in name/tags/notes for broader matching
+      if (matchedSectors.length === 0) {
+        const text = normText(`${e.name || ""} ${(e.tags || []).join(" ")} ${e.notes || ""} ${(e.keywords || []).join(" ")}`);
+        for (const sector of requiredSectors) {
+          const syns = SECTOR_SYNONYMS[sector] || [];
+          const hit = syns.some(syn => text.includes(normText(syn)));
+          if (hit) matchedSectors.push(sector);
+        }
+      }
+      
+      return { match: matchedSectors.length > 0, matchedSectors };
+    }
 
     const kbCandidates = kbAll
       .filter(e => {
         if (existingDomains.has((e.domain || "").toLowerCase())) return false;
         if (!e.domain || !e.website || !e.name) return false;
-        
-        const eLoc = normText(e.hqLocation || "");
-        if (wantQC) {
-          if (!(eLoc.includes("qc") || eLoc.includes("quebec") || eLoc.includes(cityNorm))) return false;
-        } else if (cityNorm && !eLoc.includes(cityNorm)) {
-          return false;
-        }
-        return true;
+        return kbMatchesLocation(e);
       })
       .sort(() => Math.random() - 0.5);
 
