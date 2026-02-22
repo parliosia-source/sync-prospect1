@@ -68,18 +68,56 @@ export default function Admin() {
 
   const handleBackfillDryRun = async () => {
     setMaintenanceLoading(true);
-    const { data } = await base44.functions.invoke('backfillKbIndustrySectors', { dryRun: true, limit: 2000, fillLocation: true });
+    setBackfillStats(null);
+    const { data } = await base44.functions.invoke('backfillKbIndustrySectors', {
+      dryRun: true, offset: 0, batchSize: 500, maxEntities: 500, fillLocation: true,
+    });
     setBackfillStats(data);
     setMaintenanceLoading(false);
   };
 
   const handleBackfillExecute = async () => {
-    if (!window.confirm("Appliquer le backfill à TOUTE la base (2000 entités)? Cette action est irréversible.")) return;
-    setMaintenanceLoading(true);
-    const { data } = await base44.functions.invoke('backfillKbIndustrySectors', { dryRun: false, limit: 2000, fillLocation: true });
-    setBackfillStats(data);
+    if (!window.confirm("Appliquer le backfill complet sur toute la KB ? L'opération tourne en boucle jusqu'à ce que tout soit enrichi.")) return;
+    setBackfillRunning(true);
+    setBackfillStats(null);
+
+    let offset = 0;
+    let pass = 0;
+    const totals = { scanned: 0, updatedSectors: 0, updatedLocation: 0, updatedKeywords: 0, skippedAlreadyFilled: 0, skippedLowConfidence: 0 };
+    let lastBySector = {};
+    let lastSample = [];
+
+    const MAX_PASSES = 20; // 20 × 500 = 10 000 entités max
+    while (pass < MAX_PASSES) {
+      pass++;
+      setBackfillProgress({ pass, offset, ...totals });
+
+      const { data } = await base44.functions.invoke('backfillKbIndustrySectors', {
+        dryRun: false, offset, batchSize: 500, maxEntities: 500, fillLocation: true,
+      });
+
+      totals.scanned          += data.scanned || 0;
+      totals.updatedSectors   += data.updatedSectors || 0;
+      totals.updatedLocation  += data.updatedLocation || 0;
+      totals.updatedKeywords  += data.updatedKeywords || 0;
+      totals.skippedAlreadyFilled += data.skippedAlreadyFilled || 0;
+      totals.skippedLowConfidence += data.skippedLowConfidence || 0;
+      lastBySector = data.bySector || {};
+      if (data.sampleUpdated?.length) lastSample = data.sampleUpdated;
+
+      offset = data.nextOffset || (offset + 500);
+
+      setBackfillProgress({ pass, offset, ...totals });
+
+      // Stop when no more entities or nothing was updated (fully enriched batch)
+      if (!data.hasMore || data.scanned === 0) break;
+      if (data.updatedSectors === 0 && data.updatedLocation === 0 && data.updatedKeywords === 0 && data.skippedLowConfidence === 0) break;
+    }
+
+    setBackfillStats({ ...totals, bySector: lastBySector, sampleUpdated: lastSample, dryRun: false, passes: pass });
+    setBackfillProgress(null);
     await loadMaintenance();
-    setMaintenanceLoading(false);
+    setBackfillRunning(false);
   };
 
   const handleSaveTemplate = async () => {
